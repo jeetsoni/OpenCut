@@ -6,7 +6,7 @@ import {
 	TooltipContent,
 } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
-import { SplitSquareHorizontal } from "lucide-react";
+import { SplitSquareHorizontal, Sparkles } from "lucide-react";
 import {
 	SplitButton,
 	SplitButtonLeft,
@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/split-button";
 import { useState } from "react";
 import { TranscriptDialog } from "@/components/editor/dialogs/transcript-dialog";
+import { ScenePlanDialog } from "@/components/editor/dialogs/scene-plan-dialog";
 import { Slider } from "@/components/ui/slider";
 import { TIMELINE_CONSTANTS } from "@/constants/timeline-constants";
 import { sliderToZoom, zoomToSlider } from "@/lib/timeline/zoom-utils";
@@ -86,6 +87,7 @@ function ToolbarLeftSection() {
 	const currentTime = editor.playback.getCurrentTime();
 	const isCurrentlyBookmarked = editor.scenes.isBookmarked({ time: currentTime });
 	const [transcriptOpen, setTranscriptOpen] = useState(false);
+	const [scenePlanOpen, setScenePlanOpen] = useState(false);
 
 	const handleAction = ({
 		action,
@@ -167,6 +169,12 @@ function ToolbarLeftSection() {
 				/>
 
 				<ToolbarButton
+					icon={<Sparkles className="size-4" />}
+					tooltip="Scene Plan"
+					onClick={() => setScenePlanOpen(true)}
+				/>
+
+				<ToolbarButton
 					icon={<HugeiconsIcon icon={SnowIcon} />}
 					tooltip="Freeze frame (coming soon)"
 					disabled={true}
@@ -198,6 +206,10 @@ function ToolbarLeftSection() {
 			<TranscriptDialog
 				isOpen={transcriptOpen}
 				onOpenChange={setTranscriptOpen}
+			/>
+			<ScenePlanDialog
+				isOpen={scenePlanOpen}
+				onOpenChange={setScenePlanOpen}
 			/>
 		</div>
 	);

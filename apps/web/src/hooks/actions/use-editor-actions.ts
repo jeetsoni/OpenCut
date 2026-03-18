@@ -13,6 +13,11 @@ import {
 	setProjectTranscript,
 } from "@/lib/transcription/transcript-store";
 import { createTimelineAudioBuffer } from "@/lib/media/audio";
+import { generateScenePlan } from "@/lib/scene-planner/generate-scenes";
+import {
+	getProjectScenePlan,
+	setProjectScenePlan,
+} from "@/lib/scene-planner/scene-plan-store";
 import { toast } from "sonner";
 
 export function useEditorActions() {
@@ -546,6 +551,72 @@ export function useEditorActions() {
 					const message =
 						error instanceof Error ? error.message : "Unknown error";
 					toast.error("Transcript generation failed", {
+						id: toastId,
+						description: message,
+					});
+				}
+			})();
+		},
+		undefined,
+	);
+
+	useActionHandler(
+		"generate-scene-plan",
+		() => {
+			const config = getAIProviderConfig();
+			if (!config?.apiKey) {
+				toast.error("AI provider not configured", {
+					description: "Go to the menu → AI Settings to add your API key.",
+				});
+				return;
+			}
+
+			const projectId = editor.project.getActive()?.metadata.id;
+			if (!projectId) {
+				toast.error("No active project");
+				return;
+			}
+
+			const toastId = toast.loading("Generating scene plan...", {
+				description: "Loading transcript...",
+			});
+
+			void (async () => {
+				try {
+					const transcript = await getProjectTranscript({ projectId });
+					if (!transcript) {
+						toast.error("No transcript found", {
+							id: toastId,
+							description: "Generate a transcript first before planning scenes.",
+						});
+						return;
+					}
+
+					const existing = await getProjectScenePlan({ projectId });
+					if (existing) {
+						toast.info("Scene plan exists — regenerating...", {
+							id: toastId,
+							description: `${existing.scenes.length} scenes previously generated.`,
+						});
+					}
+
+					const scenePlan = await generateScenePlan({
+						transcript,
+						onProgress: (progress) => {
+							toast.loading(progress.message, { id: toastId });
+						},
+					});
+
+					await setProjectScenePlan({ projectId, scenePlan });
+
+					toast.success("Scene plan generated", {
+						id: toastId,
+						description: `${scenePlan.scenes.length} scenes with animation directions`,
+					});
+				} catch (error: unknown) {
+					const message =
+						error instanceof Error ? error.message : "Unknown error";
+					toast.error("Scene plan generation failed", {
 						id: toastId,
 						description: message,
 					});

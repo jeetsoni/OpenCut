@@ -128,6 +128,16 @@ export function TranscriptDialog({
 						<Button variant="outline" size="sm" onClick={handleExportJSON}>
 							Export JSON
 						</Button>
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={() => {
+								onOpenChange(false);
+								invokeAction("generate-scene-plan");
+							}}
+						>
+							Generate Scene Plan →
+						</Button>
 						<Button onClick={() => onOpenChange(false)}>Done</Button>
 					</DialogFooter>
 				)}

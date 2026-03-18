@@ -162,6 +162,10 @@ export const ACTIONS = {
 		description: "Generate word-level transcript for the current timeline",
 		category: "editing",
 	},
+	"generate-scene-plan": {
+		description: "AI-generate scene plan with animation directions from transcript",
+		category: "editing",
+	},
 } as const satisfies Record<string, TActionDefinition>;
 
 export type TAction = keyof typeof ACTIONS;
