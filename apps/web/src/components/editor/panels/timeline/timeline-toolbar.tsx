@@ -13,6 +13,8 @@ import {
 	SplitButtonRight,
 	SplitButtonSeparator,
 } from "@/components/ui/split-button";
+import { useState } from "react";
+import { TranscriptDialog } from "@/components/editor/dialogs/transcript-dialog";
 import { Slider } from "@/components/ui/slider";
 import { TIMELINE_CONSTANTS } from "@/constants/timeline-constants";
 import { sliderToZoom, zoomToSlider } from "@/lib/timeline/zoom-utils";
@@ -37,6 +39,7 @@ import {
 	VolumeOffIcon,
 	MagicWand05Icon,
 	ArrowShrink02Icon,
+	TextIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 
@@ -82,6 +85,7 @@ function ToolbarLeftSection() {
 	const editor = useEditor();
 	const currentTime = editor.playback.getCurrentTime();
 	const isCurrentlyBookmarked = editor.scenes.isBookmarked({ time: currentTime });
+	const [transcriptOpen, setTranscriptOpen] = useState(false);
 
 	const handleAction = ({
 		action,
@@ -157,6 +161,12 @@ function ToolbarLeftSection() {
 				/>
 
 				<ToolbarButton
+					icon={<HugeiconsIcon icon={TextIcon} />}
+					tooltip="Transcript"
+					onClick={() => setTranscriptOpen(true)}
+				/>
+
+				<ToolbarButton
 					icon={<HugeiconsIcon icon={SnowIcon} />}
 					tooltip="Freeze frame (coming soon)"
 					disabled={true}
@@ -184,6 +194,11 @@ function ToolbarLeftSection() {
 					/>
 				</Tooltip>
 			</TooltipProvider>
+
+			<TranscriptDialog
+				isOpen={transcriptOpen}
+				onOpenChange={setTranscriptOpen}
+			/>
 		</div>
 	);
 }

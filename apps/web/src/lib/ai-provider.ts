@@ -96,6 +96,76 @@ export async function transcribeWithGroq({
 	return { text: data.text?.trim() ?? "" };
 }
 
+export interface GroqVerboseWord {
+	word: string;
+	start: number;
+	end: number;
+}
+
+export interface GroqVerboseSegment {
+	text: string;
+	start: number;
+	end: number;
+}
+
+export interface GroqVerboseResult {
+	text: string;
+	words: GroqVerboseWord[];
+	segments: GroqVerboseSegment[];
+}
+
+/**
+ * Transcribe an audio blob using Groq with verbose_json format
+ * to get word-level and segment-level timestamps.
+ */
+export async function transcribeWithGroqVerbose({
+	audioBlob,
+	language,
+	prompt,
+}: {
+	audioBlob: Blob;
+	language?: string;
+	prompt?: string;
+}): Promise<GroqVerboseResult | null> {
+	const config = getAIProviderConfig();
+	if (!config?.groqApiKey) return null;
+
+	const lang = language || config.transcriptionLanguage;
+
+	const formData = new FormData();
+	formData.append("file", audioBlob, "audio.wav");
+	formData.append("model", "whisper-large-v3");
+	formData.append("response_format", "verbose_json");
+	formData.append("timestamp_granularities[]", "word");
+	formData.append("timestamp_granularities[]", "segment");
+	if (lang) {
+		formData.append("language", lang);
+	}
+	if (prompt) {
+		formData.append("prompt", prompt);
+	}
+
+	const response = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+		method: "POST",
+		headers: {
+			Authorization: `Bearer ${config.groqApiKey}`,
+		},
+		body: formData,
+	});
+
+	if (!response.ok) {
+		const errorText = await response.text();
+		throw new Error(`Groq transcription error (${response.status}): ${errorText}`);
+	}
+
+	const data = await response.json();
+	return {
+		text: data.text?.trim() ?? "",
+		words: data.words ?? [],
+		segments: data.segments ?? [],
+	};
+}
+
 async function promptGemini({
 	prompt,
 	config,

@@ -7,6 +7,12 @@ import { useElementSelection } from "../timeline/element/use-element-selection";
 import { useKeyframeSelection } from "../timeline/element/use-keyframe-selection";
 import { getElementsAtTime } from "@/lib/timeline";
 import { getAIProviderConfig } from "@/lib/ai-provider";
+import { generateTranscript } from "@/lib/transcription/generate-transcript";
+import {
+	getProjectTranscript,
+	setProjectTranscript,
+} from "@/lib/transcription/transcript-store";
+import { createTimelineAudioBuffer } from "@/lib/media/audio";
 import { toast } from "sonner";
 
 export function useEditorActions() {
@@ -440,6 +446,111 @@ export function useEditorActions() {
 		"close-gaps",
 		() => {
 			editor.timeline.closeGaps();
+		},
+		undefined,
+	);
+
+	useActionHandler(
+		"generate-transcript",
+		() => {
+			const config = getAIProviderConfig();
+			const hasGroq = Boolean(config?.groqApiKey);
+			if (!hasGroq) {
+				// In-browser Whisper works too, but warn about quality
+				toast.info("Using in-browser Whisper", {
+					description:
+						"For best word-level accuracy, add a Groq API key in AI Settings.",
+				});
+			}
+
+			const projectId = editor.project.getActive()?.metadata.id;
+			if (!projectId) {
+				toast.error("No active project");
+				return;
+			}
+
+			const toastId = toast.loading("Generating transcript...", {
+				description: "Extracting audio from timeline...",
+			});
+
+			void (async () => {
+				try {
+					// Check if transcript already exists
+					const existing = await getProjectTranscript({ projectId });
+					if (existing) {
+						toast.info("Transcript already exists", {
+							id: toastId,
+							description: `${existing.words.length} words, ${existing.duration.toFixed(1)}s. Re-generating...`,
+						});
+					}
+
+					toast.loading("Mixing timeline audio...", { id: toastId });
+
+					// Mix the edited timeline audio (respects all cuts, trims, splits)
+					const tracks = editor.timeline.getTracks();
+					const mediaAssets = editor.media.getAssets();
+					const duration = editor.timeline.getTotalDuration();
+
+					if (duration === 0) {
+						toast.error("Timeline is empty", { id: toastId });
+						return;
+					}
+
+					const audioBuffer = await createTimelineAudioBuffer({
+						tracks,
+						mediaAssets,
+						duration,
+					});
+
+					if (!audioBuffer) {
+						toast.error("No audio found", {
+							id: toastId,
+							description: "Add a video or audio element to the timeline first.",
+						});
+						return;
+					}
+
+					// Mix down to mono Float32
+					const length = audioBuffer.length;
+					const numChannels = audioBuffer.numberOfChannels;
+					const samples = new Float32Array(length);
+					for (let i = 0; i < length; i++) {
+						let sum = 0;
+						for (let ch = 0; ch < numChannels; ch++) {
+							sum += audioBuffer.getChannelData(ch)[i];
+						}
+						samples[i] = sum / numChannels;
+					}
+
+					const transcript = await generateTranscript({
+						samples,
+						sampleRate: audioBuffer.sampleRate,
+						onProgress: (progress) => {
+							toast.loading(progress.message, {
+								id: toastId,
+								description:
+									progress.phase === "transcribing"
+										? `Chunk ${progress.current}/${progress.total}`
+										: undefined,
+							});
+						},
+					});
+
+					await setProjectTranscript({ projectId, transcript });
+
+					toast.success("Transcript generated", {
+						id: toastId,
+						description: `${transcript.words.length} words, ${transcript.duration.toFixed(1)}s`,
+					});
+				} catch (error: unknown) {
+					const message =
+						error instanceof Error ? error.message : "Unknown error";
+					toast.error("Transcript generation failed", {
+						id: toastId,
+						description: message,
+					});
+				}
+			})();
 		},
 		undefined,
 	);

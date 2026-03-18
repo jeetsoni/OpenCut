@@ -19,7 +19,7 @@ const key = process.env.MARBLE_WORKSPACE_KEY ?? "cmd4iw9mm0006l804kwqv0k46";
 async function fetchFromMarble<T>({
 	endpoint,
 }: {
-	endpoint: string;vv          
+	endpoint: string;
 }): Promise<T> {
 	try {
 		const response = await fetch(`${url}/${key}/${endpoint}`);

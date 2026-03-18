@@ -158,6 +158,10 @@ export const ACTIONS = {
 		description: "Close gaps between elements on all tracks",
 		category: "editing",
 	},
+	"generate-transcript": {
+		description: "Generate word-level transcript for the current timeline",
+		category: "editing",
+	},
 } as const satisfies Record<string, TActionDefinition>;
 
 export type TAction = keyof typeof ACTIONS;
