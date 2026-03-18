@@ -34,6 +34,9 @@ import {
 	AlignLeftIcon,
 	AlignRightIcon,
 	Layers01Icon,
+	VolumeOffIcon,
+	MagicWand05Icon,
+	ArrowShrink02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 
@@ -126,6 +129,30 @@ function ToolbarLeftSection() {
 					tooltip="Duplicate element"
 					onClick={({ event }) =>
 						handleAction({ action: "duplicate-selected", event })
+					}
+				/>
+
+				<ToolbarButton
+					icon={<HugeiconsIcon icon={VolumeOffIcon} />}
+					tooltip="Remove silence"
+					onClick={({ event }) =>
+						handleAction({ action: "remove-silence", event })
+					}
+				/>
+
+				<ToolbarButton
+					icon={<HugeiconsIcon icon={MagicWand05Icon} />}
+					tooltip="AI remove retakes"
+					onClick={({ event }) =>
+						handleAction({ action: "remove-retakes", event })
+					}
+				/>
+
+				<ToolbarButton
+					icon={<HugeiconsIcon icon={ArrowShrink02Icon} />}
+					tooltip="Close gaps"
+					onClick={({ event }) =>
+						handleAction({ action: "close-gaps", event })
 					}
 				/>
 

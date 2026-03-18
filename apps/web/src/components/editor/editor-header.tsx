@@ -19,9 +19,10 @@ import { ThemeToggle } from "../theme-toggle";
 import { DEFAULT_LOGO_URL, SOCIAL_LINKS } from "@/constants/site-constants";
 import { toast } from "sonner";
 import { useEditor } from "@/hooks/use-editor";
-import { CommandIcon, Logout05Icon } from "@hugeicons/core-free-icons";
+import { CommandIcon, Logout05Icon, MagicWand05Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ShortcutsDialog } from "./dialogs/shortcuts-dialog";
+import { AISettingsDialog } from "./dialogs/ai-settings-dialog";
 import Image from "next/image";
 import { cn } from "@/utils/ui";
 
@@ -42,7 +43,7 @@ export function EditorHeader() {
 
 function ProjectDropdown() {
 	const [openDialog, setOpenDialog] = useState<
-		"delete" | "rename" | "shortcuts" | null
+		"delete" | "rename" | "shortcuts" | "ai-settings" | null
 	>(null);
 	const [isExiting, setIsExiting] = useState(false);
 	const router = useRouter();
@@ -134,6 +135,13 @@ function ProjectDropdown() {
 						Shortcuts
 					</DropdownMenuItem>
 
+					<DropdownMenuItem
+						onClick={() => setOpenDialog("ai-settings")}
+						icon={<HugeiconsIcon icon={MagicWand05Icon} />}
+					>
+						AI Settings
+					</DropdownMenuItem>
+
 					<DropdownMenuSeparator />
 
 					<DropdownMenuItem asChild icon={<FaDiscord className="!size-4" />}>
@@ -162,6 +170,10 @@ function ProjectDropdown() {
 			<ShortcutsDialog
 				isOpen={openDialog === "shortcuts"}
 				onOpenChange={(isOpen) => setOpenDialog(isOpen ? "shortcuts" : null)}
+			/>
+			<AISettingsDialog
+				isOpen={openDialog === "ai-settings"}
+				onOpenChange={(isOpen) => setOpenDialog(isOpen ? "ai-settings" : null)}
 			/>
 		</>
 	);

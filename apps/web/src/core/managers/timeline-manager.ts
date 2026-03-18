@@ -40,9 +40,14 @@ import {
 	ReorderClipEffectsCommand,
 	UpsertEffectParamKeyframeCommand,
 	RemoveEffectParamKeyframeCommand,
+	RemoveSilenceCommand,
+	RemoveRetakesCommand,
+	CloseGapsCommand,
 } from "@/lib/commands/timeline";
 import { BatchCommand, PreviewTracker } from "@/lib/commands";
 import type { InsertElementParams } from "@/lib/commands/timeline/element/insert-element";
+import type { SilenceDetectionOptions } from "@/lib/silence-detection";
+import type { RetakeDetectionProgress } from "@/lib/retake-detection";
 
 export class TimelineManager {
 	private listeners = new Set<() => void>();
@@ -242,6 +247,41 @@ export class TimelineManager {
 		rippleEnabled?: boolean;
 	}): void {
 		const command = new DeleteElementsCommand({ elements, rippleEnabled });
+		this.editor.command.execute({ command });
+	}
+
+	async removeSilence({
+		elements,
+		options = {},
+	}: {
+		elements: { trackId: string; elementId: string }[];
+		options?: SilenceDetectionOptions;
+	}): Promise<void> {
+		const command = new RemoveSilenceCommand({ elements, options });
+		await command.prepare();
+		this.editor.command.execute({ command });
+	}
+
+	async removeRetakes({
+		elements,
+		silenceOptions = {},
+		onProgress,
+	}: {
+		elements: { trackId: string; elementId: string }[];
+		silenceOptions?: SilenceDetectionOptions;
+		onProgress?: (progress: RetakeDetectionProgress) => void;
+	}): Promise<void> {
+		const command = new RemoveRetakesCommand({
+			elements,
+			silenceOptions,
+			onProgress,
+		});
+		await command.prepare();
+		this.editor.command.execute({ command });
+	}
+
+	closeGaps(): void {
+		const command = new CloseGapsCommand();
 		this.editor.command.execute({ command });
 	}
 

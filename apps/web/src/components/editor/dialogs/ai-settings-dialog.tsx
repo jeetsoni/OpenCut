@@ -1,0 +1,193 @@
+import { useState, useEffect } from "react";
+import {
+	Dialog,
+	DialogBody,
+	DialogContent,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
+import {
+	getAIProviderConfig,
+	setAIProviderConfig,
+	type AIProviderType,
+} from "@/lib/ai-provider";
+
+export function AISettingsDialog({
+	isOpen,
+	onOpenChange,
+}: {
+	isOpen: boolean;
+	onOpenChange: (open: boolean) => void;
+}) {
+	const [provider, setProvider] = useState<AIProviderType>("gemini");
+	const [apiKey, setApiKey] = useState("");
+	const [model, setModel] = useState("");
+	const [baseUrl, setBaseUrl] = useState("");
+	const [groqApiKey, setGroqApiKey] = useState("");
+	const [transcriptionLanguage, setTranscriptionLanguage] = useState("");
+
+	useEffect(() => {
+		if (isOpen) {
+			const config = getAIProviderConfig();
+			if (config) {
+				setProvider(config.provider);
+				setApiKey(config.apiKey);
+				setModel(config.model ?? "");
+				setBaseUrl(config.baseUrl ?? "");
+				setGroqApiKey(config.groqApiKey ?? "");
+				setTranscriptionLanguage(config.transcriptionLanguage ?? "");
+			}
+		}
+	}, [isOpen]);
+
+	const handleSave = () => {
+		setAIProviderConfig({
+			provider,
+			apiKey,
+			model: model || undefined,
+			baseUrl: baseUrl || undefined,
+			groqApiKey: groqApiKey || undefined,
+			transcriptionLanguage: transcriptionLanguage || undefined,
+		});
+		onOpenChange(false);
+	};
+
+	return (
+		<Dialog open={isOpen} onOpenChange={onOpenChange}>
+			<DialogContent onOpenAutoFocus={(event) => event.preventDefault()}>
+				<DialogHeader>
+					<DialogTitle>AI Settings</DialogTitle>
+				</DialogHeader>
+				<DialogBody className="flex flex-col gap-4">
+					<p className="text-muted-foreground text-sm">
+						Your keys are stored locally in your browser only.
+					</p>
+
+					<div className="text-muted-foreground text-xs font-medium uppercase tracking-wider">
+						LLM Provider (for retake analysis)
+					</div>
+
+					<div className="flex flex-col gap-1.5">
+						<Label>Provider</Label>
+						<Select
+							value={provider}
+							onValueChange={(v) => setProvider(v as AIProviderType)}
+						>
+							<SelectTrigger>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="gemini">Google Gemini</SelectItem>
+								<SelectItem value="openai">OpenAI / Compatible</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
+
+					<div className="flex flex-col gap-1.5">
+						<Label>API Key</Label>
+						<Input
+							type="password"
+							value={apiKey}
+							onChange={(e) => setApiKey(e.target.value)}
+							placeholder={provider === "gemini" ? "AIza..." : "sk-..."}
+							size="sm"
+						/>
+					</div>
+
+					<div className="flex flex-col gap-1.5">
+						<Label>
+							Model{" "}
+							<span className="text-muted-foreground font-normal">
+								(optional)
+							</span>
+						</Label>
+						<Input
+							value={model}
+							onChange={(e) => setModel(e.target.value)}
+							placeholder={
+								provider === "gemini" ? "gemini-2.0-flash" : "gpt-4o-mini"
+							}
+							size="sm"
+						/>
+					</div>
+
+					{provider === "openai" && (
+						<div className="flex flex-col gap-1.5">
+							<Label>
+								Base URL{" "}
+								<span className="text-muted-foreground font-normal">
+									(optional)
+								</span>
+							</Label>
+							<Input
+								value={baseUrl}
+								onChange={(e) => setBaseUrl(e.target.value)}
+								placeholder="https://api.openai.com/v1"
+								size="sm"
+							/>
+						</div>
+					)}
+
+					<div className="bg-border my-1 h-px" />
+
+					<div className="text-muted-foreground text-xs font-medium uppercase tracking-wider">
+						Transcription (Groq Whisper)
+					</div>
+
+					<div className="flex flex-col gap-1.5">
+						<Label>Groq API Key</Label>
+						<Input
+							type="password"
+							value={groqApiKey}
+							onChange={(e) => setGroqApiKey(e.target.value)}
+							placeholder="gsk_..."
+							size="sm"
+						/>
+						<p className="text-muted-foreground text-xs">
+							Free at console.groq.com — uses whisper-large-v3 for fast,
+							accurate transcription. Without this, falls back to slower
+							in-browser Whisper.
+						</p>
+					</div>
+
+					<div className="flex flex-col gap-1.5">
+						<Label>
+							Language{" "}
+							<span className="text-muted-foreground font-normal">
+								(optional)
+							</span>
+						</Label>
+						<Input
+							value={transcriptionLanguage}
+							onChange={(e) => setTranscriptionLanguage(e.target.value)}
+							placeholder='e.g. "hi" for Hindi, "en" for English'
+							size="sm"
+						/>
+						<p className="text-muted-foreground text-xs">
+							ISO 639-1 code. Leave empty for auto-detection.
+						</p>
+					</div>
+				</DialogBody>
+				<DialogFooter>
+					<Button variant="outline" onClick={() => onOpenChange(false)}>
+						Cancel
+					</Button>
+					<Button onClick={handleSave} disabled={!apiKey.trim()}>
+						Save
+					</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
+	);
+}

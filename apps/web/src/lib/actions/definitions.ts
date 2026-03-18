@@ -146,6 +146,18 @@ export const ACTIONS = {
 		category: "history",
 		defaultShortcuts: ["ctrl+shift+z", "ctrl+y"],
 	},
+	"remove-silence": {
+		description: "Remove silent portions from selected elements",
+		category: "editing",
+	},
+	"remove-retakes": {
+		description: "AI-detect and remove retakes from selected elements",
+		category: "editing",
+	},
+	"close-gaps": {
+		description: "Close gaps between elements on all tracks",
+		category: "editing",
+	},
 } as const satisfies Record<string, TActionDefinition>;
 
 export type TAction = keyof typeof ACTIONS;

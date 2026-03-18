@@ -9,5 +9,8 @@ export { UpdateElementCommand } from "./update-element";
 export { ToggleElementsVisibilityCommand } from "./toggle-elements-visibility";
 export { ToggleElementsMutedCommand } from "./toggle-elements-muted";
 export { MoveElementCommand } from "./move-elements";
+export { RemoveSilenceCommand } from "./remove-silence";
+export { RemoveRetakesCommand } from "./remove-retakes";
+export { CloseGapsCommand } from "./close-gaps";
 export * from "./keyframes";
 export * from "./effects";

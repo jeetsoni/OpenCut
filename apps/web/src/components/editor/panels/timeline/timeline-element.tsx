@@ -322,6 +322,22 @@ export function TimelineElement({
 						isMuted={isMuted}
 					/>
 				)}
+				{canElementHaveAudio(element) && hasAudio && (
+					<ActionMenuItem
+						action="remove-silence"
+						icon={<HugeiconsIcon icon={VolumeOffIcon} />}
+					>
+						Remove silence
+					</ActionMenuItem>
+				)}
+				{canElementHaveAudio(element) && hasAudio && (
+					<ActionMenuItem
+						action="remove-retakes"
+						icon={<HugeiconsIcon icon={MagicWand05Icon} />}
+					>
+						AI remove retakes
+					</ActionMenuItem>
+				)}
 				{canElementBeHidden(element) && (
 					<VisibilityMenuItem
 						element={element}

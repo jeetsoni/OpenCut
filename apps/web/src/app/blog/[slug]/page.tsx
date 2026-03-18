@@ -57,7 +57,7 @@ export async function generateMetadata({
 
 export async function generateStaticParams() {
 	const data = await getPosts();
-	if (!data || !data.posts.length) return [];
+	if (!data || !data.posts?.length) return [];
 
 	return data.posts.map((post) => ({
 		slug: post.slug,

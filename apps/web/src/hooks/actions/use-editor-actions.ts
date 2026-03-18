@@ -6,6 +6,8 @@ import { useEditor } from "../use-editor";
 import { useElementSelection } from "../timeline/element/use-element-selection";
 import { useKeyframeSelection } from "../timeline/element/use-keyframe-selection";
 import { getElementsAtTime } from "@/lib/timeline";
+import { getAIProviderConfig } from "@/lib/ai-provider";
+import { toast } from "sonner";
 
 export function useEditorActions() {
 	const editor = useEditor();
@@ -350,6 +352,94 @@ export function useEditorActions() {
 		"redo",
 		() => {
 			editor.command.redo();
+		},
+		undefined,
+	);
+
+	useActionHandler(
+		"remove-silence",
+		() => {
+			const targets =
+				selectedElements.length > 0
+					? selectedElements
+					: editor.timeline
+							.getTracks()
+							.flatMap((track) =>
+								track.elements.map((el) => ({
+									trackId: track.id,
+									elementId: el.id,
+								})),
+							);
+
+			if (targets.length === 0) return;
+
+			void editor.timeline.removeSilence({ elements: targets });
+		},
+		undefined,
+	);
+
+	useActionHandler(
+		"remove-retakes",
+		() => {
+			const config = getAIProviderConfig();
+			if (!config?.apiKey) {
+				toast.error("AI provider not configured", {
+					description: "Go to the menu → AI Settings to add your API key.",
+				});
+				return;
+			}
+
+			const targets =
+				selectedElements.length > 0
+					? selectedElements
+					: editor.timeline
+							.getTracks()
+							.flatMap((track) =>
+								track.elements.map((el) => ({
+									trackId: track.id,
+									elementId: el.id,
+								})),
+							);
+
+			if (targets.length === 0) return;
+
+			const toastId = toast.loading("Removing retakes...", {
+				description: "Transcribing audio segments...",
+			});
+
+			void editor.timeline
+				.removeRetakes({
+					elements: targets,
+					onProgress: (progress) => {
+						const desc =
+							progress.phase === "analyzing"
+								? "This may take 10–30 seconds..."
+								: undefined;
+						toast.loading(progress.message, {
+							id: toastId,
+							description: desc,
+						});
+					},
+				})
+				.then(() => {
+					toast.success("Retakes removed", { id: toastId });
+				})
+				.catch((error: unknown) => {
+					const message =
+						error instanceof Error ? error.message : "Unknown error";
+					toast.error("Failed to remove retakes", {
+						id: toastId,
+						description: message,
+					});
+				});
+		},
+		undefined,
+	);
+
+	useActionHandler(
+		"close-gaps",
+		() => {
+			editor.timeline.closeGaps();
 		},
 		undefined,
 	);
