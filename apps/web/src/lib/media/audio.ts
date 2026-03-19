@@ -271,6 +271,7 @@ export interface AudioClipSource {
 	trimStart: number;
 	trimEnd: number;
 	muted: boolean;
+	volume: number;
 }
 
 async function fetchLibraryAudioSource({
@@ -329,6 +330,7 @@ async function fetchLibraryAudioClip({
 			trimStart: element.trimStart,
 			trimEnd: element.trimEnd,
 			muted,
+			volume: element.volume,
 		};
 	} catch (error) {
 		console.warn("Failed to fetch library audio:", error);
@@ -356,10 +358,12 @@ function collectMediaAudioClip({
 	element,
 	mediaAsset,
 	muted,
+	volume,
 }: {
 	element: TimelineElement;
 	mediaAsset: MediaAsset;
 	muted: boolean;
+	volume: number;
 }): AudioClipSource {
 	return {
 		id: element.id,
@@ -370,6 +374,7 @@ function collectMediaAudioClip({
 		trimStart: element.trimStart,
 		trimEnd: element.trimEnd,
 		muted,
+		volume,
 	};
 }
 
@@ -460,6 +465,7 @@ export async function collectAudioClips({
 							element,
 							mediaAsset,
 							muted,
+							volume: element.volume,
 						}),
 					);
 				} else {
@@ -478,6 +484,7 @@ export async function collectAudioClips({
 							element,
 							mediaAsset,
 							muted,
+							volume: 1,
 						}),
 					);
 				}

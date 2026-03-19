@@ -65,7 +65,21 @@ Visual rules:
 - Headlines: 44-72px, fontWeight 700-900, letterSpacing: -1
 - NO glowing effects, NO 3D, NO neon, NO cartoon elements
 - Maximum 3-4 colors per visual
-- Stripe / Linear / Notion enterprise aesthetic`;
+- Stripe / Linear / Notion enterprise aesthetic
+
+## CRITICAL: Face Cam Safe Zone
+
+The canvas is 1080×1920. A face cam video box is ALWAYS present at the bottom-left:
+- Position: left=40, bottom=150, width=440, height=580
+- This means the face cam occupies y=1190 to y=1770 on the left side (x=0 to x=480)
+
+ALL animation content MUST stay in the SAFE ZONE above the face cam:
+- Use CANVAS_TOP = 80–140px (top padding)
+- Use CANVAS_HEIGHT = 1080–1100px (usable height)
+- Content must NOT extend below y≈1150 on the canvas
+- This gives you roughly the top 60% of the 1920px canvas for all visuals
+- When describing layout in beat directions, always specify "positioned in the safe zone above face cam"
+- Never place important content in the bottom-left quadrant where the face cam sits`;
 
 export const SCENE_PLANNER_ANIMATION_RULES = `
 ## THE #1 RULE: VISUALIZE THE THING ITSELF — Not a Card About It

@@ -1,0 +1,14 @@
+{
+  "folders": [
+	{
+		"path": "../../../../../.."
+	},
+	{
+		"path": "../../../../../../../remotion"
+	}
+],
+  "settings": {
+    "typescript.tsdk": "node_modules/typescript/lib",
+    "emmet.showExpandedAbbreviation": "never"
+  }
+}

@@ -38,7 +38,7 @@ export function SceneSection({ elementId }: { elementId: string }) {
 	const color = SCENE_TYPE_COLORS[boundary.type] || "#5BB8F5";
 
 	return (
-		<Section collapsible sectionKey="scene-direction">
+		<Section collapsible sectionKey={`scene-direction-${elementId}`}>
 			<SectionHeader
 				leading={
 					<span

@@ -28,6 +28,18 @@ These are available as global variables in scope:
 10. Keep the code under 400 lines
 11. Use the design system colors from scenePlan.designSystem
 
+## CRITICAL LAYOUT CONSTRAINT: Face Cam Safe Zone
+
+The canvas is 1080×1920. A face cam video box is ALWAYS composited at the bottom-left:
+- Face cam position: left=40, bottom=150, width=440, height=580
+- This occupies roughly y=1190 to y=1770 on the left side
+
+ALL your rendered content MUST stay in the SAFE ZONE above the face cam:
+- Define constants: const CANVAS_TOP = 80; const CANVAS_H = 1080;
+- Wrap all content in a container: position:"absolute", top:CANVAS_TOP, left:44, right:44, height:CANVAS_H
+- NEVER render anything below y≈1150 — it will be hidden behind the face cam
+- Think of it as a 1080×1080 usable area at the top of the 1920px canvas
+
 ## Visual Style
 
 - Dark background (#0D0E14)
@@ -51,12 +63,17 @@ These are available as global variables in scope:
 function Main({ scenePlan }) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
+  const CANVAS_TOP = 80;
+  const CANVAS_H = 1080;
 
   return (
     <AbsoluteFill style={{ backgroundColor: scenePlan.designSystem.background }}>
       {scenePlan.scenes.map((scene) => (
         <Sequence key={scene.id} from={scene.startFrame} durationInFrames={scene.durationFrames}>
-          {/* Scene content — interpret animationDirection.beats */}
+          {/* Wrap all scene content in the safe zone container */}
+          <div style={{ position: "absolute", top: CANVAS_TOP, left: 44, right: 44, height: CANVAS_H, display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+            {/* Scene content — interpret animationDirection.beats */}
+          </div>
         </Sequence>
       ))}
     </AbsoluteFill>

@@ -7,6 +7,8 @@ import { buildScene } from "@/services/renderer/scene-builder";
 import { createTimelineAudioBuffer } from "@/lib/media/audio";
 import { formatTimeCode, getLastFrameTime } from "@/lib/time";
 import { downloadBlob } from "@/utils/browser";
+import { compileExportScenes, AnimationFrameRenderer } from "@/services/renderer/animation-frame-renderer";
+import { usePreviewStore } from "@/stores/preview-store";
 
 export class RendererManager {
 	private renderTree: RootNode | null = null;
@@ -132,6 +134,28 @@ export class RendererManager {
 				background: activeProject.settings.background,
 			});
 
+			// Compile scene animations if overlay is enabled
+			let animationRenderer: AnimationFrameRenderer | undefined;
+			const animationsEnabled = usePreviewStore.getState().overlays.animations;
+			if (animationsEnabled) {
+				try {
+					const projectId = activeProject.metadata.id;
+					const compiledScenes = await compileExportScenes({ projectId });
+					if (compiledScenes.length > 0) {
+						animationRenderer = new AnimationFrameRenderer({
+							scenes: compiledScenes,
+							fps: exportFps,
+						});
+						// Pre-render all animation frames upfront
+						await animationRenderer.preRender({
+							onProgress: (p) => onProgress?.({ progress: p * 0.3 }),
+						});
+					}
+				} catch (err) {
+					console.warn("[Export] Failed to compile animations, exporting without:", err);
+				}
+			}
+
 			const exporter = new SceneExporter({
 				width: canvasSize.width,
 				height: canvasSize.height,
@@ -143,9 +167,11 @@ export class RendererManager {
 			});
 
 			exporter.on("progress", (progress) => {
+				const baseOffset = animationRenderer ? 0.3 : 0;
+				const scale = animationRenderer ? 0.7 : 1;
 				const adjustedProgress = includeAudio
-					? 0.05 + progress * 0.95
-					: progress;
+					? 0.05 + (baseOffset + progress * scale) * 0.95
+					: baseOffset + progress * scale;
 				onProgress?.({ progress: adjustedProgress });
 			});
 
@@ -160,12 +186,15 @@ export class RendererManager {
 			const cancelInterval = setInterval(checkCancel, 100);
 
 			try {
-				const buffer = await exporter.export({ rootNode: scene });
+				const buffer = await exporter.export({ rootNode: scene, animationRenderer });
 				clearInterval(cancelInterval);
 
 				if (cancelled) {
+					animationRenderer?.dispose();
 					return { success: false, cancelled: true };
 				}
+
+				animationRenderer?.dispose();
 
 				if (!buffer) {
 					return { success: false, error: "Export failed to produce buffer" };
@@ -177,6 +206,7 @@ export class RendererManager {
 				};
 			} finally {
 				clearInterval(cancelInterval);
+				animationRenderer?.dispose();
 			}
 		} catch (error) {
 			console.error("Export failed:", error);

@@ -12,6 +12,7 @@ import {
 	enforceMainTrackStart,
 } from "@/lib/timeline/track-utils";
 import { rippleShiftElements } from "@/lib/timeline/ripple-utils";
+import { resolveElementOverlaps } from "@/lib/timeline/element-utils";
 
 export class MoveElementCommand extends Command {
 	private savedState: TimelineTrack[] | null = null;
@@ -102,11 +103,12 @@ export class MoveElementCommand extends Command {
 
 		let updatedTracks = tracksToUpdate.map((track): TimelineTrack => {
 			if (isSameTrack && track.id === this.sourceTrackId) {
+				const updatedElements = track.elements.map((trackElement) =>
+					trackElement.id === this.elementId ? movedElement : trackElement,
+				);
 				return {
 					...track,
-					elements: track.elements.map((trackElement) =>
-						trackElement.id === this.elementId ? movedElement : trackElement,
-					),
+					elements: resolveElementOverlaps({ elements: updatedElements }),
 				} as typeof track;
 			}
 
@@ -125,9 +127,11 @@ export class MoveElementCommand extends Command {
 			}
 
 			if (track.id === this.targetTrackId) {
+				// Place the moved element first so it wins tie-breaks at the same startTime
+				const newElements = [movedElement, ...track.elements];
 				return {
 					...track,
-					elements: [...track.elements, movedElement],
+					elements: resolveElementOverlaps({ elements: newElements }),
 				} as typeof track;
 			}
 

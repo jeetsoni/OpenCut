@@ -52,6 +52,18 @@ function extractJson(text: string): string {
 
 const DIRECTION_SYSTEM_PROMPT = `You are an expert graphic video animator with deep AI engineering knowledge and a teacher's instinct for visual explanation. You receive a single scene boundary (with its spoken text and timestamps) and produce detailed animation directions for that scene only.
 
+## CRITICAL LAYOUT CONSTRAINT: Face Cam Safe Zone
+
+The canvas is 1080×1920. A face cam video box is ALWAYS rendered at the bottom-left corner:
+- Position: left=40, bottom=150, width=440, height=580 (occupies y≈1190 to y≈1770, x=0 to x≈480)
+
+ALL animation content MUST be placed in the SAFE ZONE ABOVE the face cam:
+- Usable area: top=80 to top=1150 (roughly 1080px of vertical space)
+- Horizontal: full 1080px width with 44px padding on each side
+- NEVER place any visual element below y≈1150 — it will be hidden behind the face cam
+- In your beat "visual" descriptions, always position content within this safe zone
+- Think of it as designing for a 1080×1080 area at the top of a 1080×1920 canvas
+
 ## THE #1 RULE: VISUALIZE THE THING ITSELF
 
 When the speaker talks about a concept, you BUILD THE ACTUAL THING on screen — not a card that describes it.

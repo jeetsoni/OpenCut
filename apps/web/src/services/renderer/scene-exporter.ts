@@ -77,8 +77,10 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 
 	async export({
 		rootNode,
+		animationRenderer,
 	}: {
 		rootNode: RootNode;
+		animationRenderer?: { renderFrame: (params: { time: number; ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D; canvasWidth: number; canvasHeight: number; baseCanvas?: HTMLCanvasElement | OffscreenCanvas }) => Promise<boolean> };
 	}): Promise<ArrayBuffer | null> {
 		const { fps } = this.renderer;
 		const frameCount = Math.ceil(rootNode.duration * fps);
@@ -136,6 +138,32 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 
 			const time = i / fps;
 			await this.renderer.render({ node: rootNode, time });
+
+			// Composite animation overlay on top if available
+			if (animationRenderer) {
+				try {
+					// Snapshot the base video frame before animation replaces it
+					const baseSnapshot = document.createElement("canvas");
+					baseSnapshot.width = this.renderer.width;
+					baseSnapshot.height = this.renderer.height;
+					const snapCtx = baseSnapshot.getContext("2d");
+					if (snapCtx) {
+						snapCtx.drawImage(this.renderer.canvas, 0, 0);
+					}
+
+					const ctx = this.renderer.context;
+					await animationRenderer.renderFrame({
+						time,
+						ctx,
+						canvasWidth: this.renderer.width,
+						canvasHeight: this.renderer.height,
+						baseCanvas: baseSnapshot,
+					});
+				} catch (err) {
+					console.warn("[Export] Animation frame failed at", time, err);
+				}
+			}
+
 			await videoSource.add(time, 1 / fps);
 
 			this.emit("progress", i / frameCount);

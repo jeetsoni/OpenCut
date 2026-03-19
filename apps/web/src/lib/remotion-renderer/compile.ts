@@ -123,7 +123,14 @@ function compileWithScope(
 	scopeValues: unknown[],
 ): CompileResult | CompileError {
 	try {
-		const transpiled = transform(code, {
+		// Strip export/import statements — the sandbox provides all dependencies via scope.
+		// AI-generated code sometimes includes `export` on component declarations.
+		const cleaned = code
+			.replace(/^\s*export\s+default\s+/gm, "")
+			.replace(/^\s*export\s+/gm, "")
+			.replace(/^\s*import\s+.*?;?\s*$/gm, "");
+
+		const transpiled = transform(cleaned, {
 			transforms: ["jsx", "typescript"],
 			jsxRuntime: "classic",
 			production: true,

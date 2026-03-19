@@ -275,6 +275,27 @@ export function computeDropTarget({
 		};
 	}
 
+	// When the track is compatible but has overlap, still allow the drop
+	// onto the same track so the move command can handle ripple/reorder.
+	// Only force a new track when the track type is incompatible.
+	if (isTrackCompatible && hasOverlap) {
+		const targetTrack = tracks[trackIndex];
+		const adjustedXPosition = enforceMainTrackStart({
+			tracks,
+			targetTrackId: targetTrack.id,
+			requestedStartTime: xPosition,
+			excludeElementId,
+		});
+
+		return {
+			trackIndex,
+			isNewTrack: false,
+			insertPosition: null,
+			xPosition: adjustedXPosition,
+			targetElement: EMPTY_TARGET_ELEMENT,
+		};
+	}
+
 	let insertAbove = isInUpperHalf;
 	if (!isTrackCompatible && verticalDragDirection) {
 		insertAbove = verticalDragDirection === "up";

@@ -50,6 +50,16 @@ const SCENE_CODE_SYSTEM_PROMPT = `You are a Remotion code generator. You receive
 - React (useState, useEffect, useMemo, useCallback)
 - AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig, interpolate, spring, Easing
 
+## CRITICAL LAYOUT CONSTRAINT: Face Cam Safe Zone
+
+The canvas is 1080×1920. A face cam video box is ALWAYS composited at the bottom-left:
+- Face cam: left=40, bottom=150, width=440, height=580 (occupies y≈1190 to y≈1770)
+
+ALL content MUST stay in the SAFE ZONE above the face cam:
+- Define: const CANVAS_TOP = 80; const CANVAS_H = 1080;
+- Wrap all content: position:"absolute", top:CANVAS_TOP, left:44, right:44, height:CANVAS_H
+- NEVER render below y≈1150 — it will be hidden behind the face cam
+
 ## Rules
 1. Export function Main({ scene }) — receives the single scene object
 2. Use useCurrentFrame() — frame 0 is the START of this scene
@@ -64,11 +74,15 @@ const SCENE_CODE_SYSTEM_PROMPT = `You are a Remotion code generator. You receive
 function Main({ scene }) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
+  const CANVAS_TOP = 80;
+  const CANVAS_H = 1080;
   // scene.animationDirection.beats has the timing
   // beat.frameRange is ABSOLUTE — subtract scene.startFrame to get relative
   return (
     <AbsoluteFill style={{ backgroundColor: "#0D0E14" }}>
-      {/* Render beats */}
+      <div style={{ position: "absolute", top: CANVAS_TOP, left: 44, right: 44, height: CANVAS_H, display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+        {/* All content goes here — safely above the face cam */}
+      </div>
     </AbsoluteFill>
   );
 }

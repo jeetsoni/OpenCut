@@ -242,6 +242,12 @@ export class AudioManager {
 		this.clipIterators.set(clip.id, iterator);
 		let consecutiveDroppedBufferCount = 0;
 
+		// Per-clip gain node for volume control
+		const clipGain = audioContext.createGain();
+		clipGain.gain.value = clip.volume;
+		clipGain.connect(this.masterGain ?? audioContext.destination);
+
+		try {
 		for await (const { buffer, timestamp } of iterator) {
 			if (!this.editor.playback.getIsPlaying()) return;
 			if (sessionId !== this.playbackSessionId) return;
@@ -251,7 +257,7 @@ export class AudioManager {
 
 			const node = audioContext.createBufferSource();
 			node.buffer = buffer;
-			node.connect(this.masterGain ?? audioContext.destination);
+			node.connect(clipGain);
 
 			const startTimestamp =
 				this.playbackStartContextTime +
@@ -304,6 +310,19 @@ export class AudioManager {
 				await this.waitUntilCaughtUp({ timelineTime, targetAhead: 1 });
 				if (sessionId !== this.playbackSessionId) return;
 			}
+		}
+		} catch (error) {
+			// Iterator can throw when the underlying decoder/input is disposed
+			// during playback stop or clip changes — safe to ignore.
+			if (
+				error instanceof Error &&
+				(error.name === "InputDisposedError" || error.message === "Input has been disposed.")
+			) {
+				return;
+			}
+			throw error;
+		} finally {
+			clipGain.disconnect();
 		}
 
 		this.clipIterators.delete(clip.id);

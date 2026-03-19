@@ -171,6 +171,8 @@ export function AnimationOverlay() {
 						Component: compiled.Component as unknown as React.FC<{ scene: PlannedScene }>,
 						direction: status.direction,
 					});
+				} else {
+					console.warn(`[AnimationOverlay] Scene ${b.id} compile failed:`, compiled.error);
 				}
 			}
 
@@ -227,14 +229,18 @@ export function AnimationOverlay() {
 					<div
 						style={{
 							position: "absolute",
-							bottom: 40,
-							right: 40,
-							width: "25%",
-							aspectRatio: "9/16",
-							borderRadius: 16,
+							bottom: 150,
+							left: 40,
+							width: 440,
+							height: 580,
+							borderRadius: 24,
 							overflow: "hidden",
-							border: "2px solid rgba(255,255,255,0.15)",
-							boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+							border: "5px solid #F5C518",
+							boxShadow: "0 0 40px rgba(245, 197, 24, 0.45)",
+							backgroundColor: "#111",
+							display: "flex",
+							justifyContent: "center",
+							alignItems: "center",
 						}}
 					>
 						<SyncedPipVideo clips={videoClips} currentTime={currentTime} isPlaying={isPlaying} />
