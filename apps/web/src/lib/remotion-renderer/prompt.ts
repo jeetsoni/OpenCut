@@ -31,8 +31,11 @@ These are available as global variables in scope:
 ## Visual Style
 
 - Dark background (#0D0E14)
-- Card-based layouts with tinted dark backgrounds
-- Flat vector shapes (divs with borderRadius, not SVGs)
+- VISUALIZE THE THING ITSELF — when the beat describes a chat UI, build actual message bubbles; when it describes a terminal, build actual monospace output with title bar dots; when it describes a scatter plot, build actual SVG with grid lines and plotted dots
+- Card-based layouts with tinted dark backgrounds — but cards are CONTAINERS for real content (terminals, code editors, chat UIs, diagrams), NOT just emoji + title + subtitle
+- Flat vector shapes (divs with borderRadius, SVGs for diagrams/charts/scatter plots)
+- Use SVG for technical diagrams: scatter plots, flow charts, node graphs with grid lines, axis labels, connection paths
+- Use monospace fontFamily for anything representing code, terminal output, vectors, or data
 - 1px solid borders with color + opacity
 - Headlines: 44-72px, fontWeight 700-900, letterSpacing: -1
 - NO glowing effects, NO 3D, NO neon
@@ -40,6 +43,7 @@ These are available as global variables in scope:
 - Stripe / Linear / Notion enterprise aesthetic
 - Smooth spring animations for entries
 - Subtle floating idle animations using Math.sin
+- All content must be REALISTIC — real error messages, real code, real data values, not placeholder text
 
 ## Component Structure
 
