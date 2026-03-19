@@ -47,6 +47,7 @@ import { useTimelineSeek } from "@/hooks/timeline/use-timeline-seek";
 import { useTimelineDragDrop } from "@/hooks/timeline/use-timeline-drag-drop";
 import { TimelineRuler } from "./timeline-ruler";
 import { TimelineBookmarksRow } from "./bookmarks";
+import { SceneBoundariesRow, SceneBoundariesLabel } from "./scene-boundaries-row";
 import { useBookmarkDrag } from "@/hooks/timeline/use-bookmark-drag";
 import { useEdgeAutoScroll } from "@/hooks/timeline/use-edge-auto-scroll";
 import { useTimelineStore } from "@/stores/timeline-store";
@@ -257,6 +258,7 @@ export function Timeline() {
 						<div className="bg-background flex h-4 items-center justify-between px-3">
 							<span className="opacity-0">.</span>
 						</div>
+						<SceneBoundariesLabel />
 						{tracks.length > 0 && (
 							<div
 								ref={trackLabelsRef}
@@ -396,6 +398,10 @@ export function Timeline() {
 										handleTimelineContentClick={handleRulerClick}
 										handleRulerTrackingMouseDown={handleRulerMouseDown}
 										handleRulerMouseDown={handlePlayheadRulerMouseDown}
+									/>
+									<SceneBoundariesRow
+										zoomLevel={zoomLevel}
+										dynamicTimelineWidth={dynamicTimelineWidth}
 									/>
 								</div>
 								<TimelinePlayhead

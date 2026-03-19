@@ -12,5 +12,6 @@ export { MoveElementCommand } from "./move-elements";
 export { RemoveSilenceCommand } from "./remove-silence";
 export { RemoveRetakesCommand } from "./remove-retakes";
 export { CloseGapsCommand } from "./close-gaps";
+export { MergeAdjacentElementsCommand } from "./merge-adjacent-elements";
 export * from "./keyframes";
 export * from "./effects";

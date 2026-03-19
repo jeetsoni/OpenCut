@@ -10,128 +10,20 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Input } from "@/components/ui/input";
 import { useEditor } from "@/hooks/use-editor";
 import {
-	getProjectScenePlan,
-	deleteProjectScenePlan,
-} from "@/lib/scene-planner/scene-plan-store";
+	getProjectBoundaries,
+	setProjectBoundaries,
+	deleteProjectBoundaries,
+} from "@/lib/scene-planner/boundaries-store";
 import { getProjectTranscript } from "@/lib/transcription/transcript-store";
-import type { ScenePlan, PlannedScene } from "@/lib/scene-planner/schema";
+import { getSceneDirection } from "@/lib/scene-planner/scene-direction-store";
+import { getSceneRemotionCode } from "@/lib/remotion-renderer/scene-code-store";
+import type { SceneBoundaries, SceneBoundary } from "@/lib/scene-planner/boundaries";
+import type { PlannedScene } from "@/lib/scene-planner/schema";
 import { invokeAction } from "@/lib/actions";
-
-export function ScenePlanDialog({
-	isOpen,
-	onOpenChange,
-}: {
-	isOpen: boolean;
-	onOpenChange: (open: boolean) => void;
-}) {
-	const editor = useEditor();
-	const [scenePlan, setScenePlan] = useState<ScenePlan | null>(null);
-	const [hasTranscript, setHasTranscript] = useState(false);
-	const [loading, setLoading] = useState(false);
-	const [expandedScene, setExpandedScene] = useState<number | null>(null);
-
-	const projectId = editor.project.getActive()?.metadata.id;
-
-	const loadData = useCallback(async () => {
-		if (!projectId) return;
-		setLoading(true);
-		const [plan, transcript] = await Promise.all([
-			getProjectScenePlan({ projectId }),
-			getProjectTranscript({ projectId }),
-		]);
-		setScenePlan(plan);
-		setHasTranscript(Boolean(transcript));
-		setLoading(false);
-	}, [projectId]);
-
-	useEffect(() => {
-		if (isOpen) loadData();
-	}, [isOpen, loadData]);
-
-	const handleGenerate = () => {
-		onOpenChange(false);
-		invokeAction("generate-scene-plan");
-	};
-
-	const handleRegenerate = async () => {
-		if (!projectId) return;
-		await deleteProjectScenePlan({ projectId });
-		onOpenChange(false);
-		invokeAction("generate-scene-plan");
-	};
-
-	const handleExportJSON = () => {
-		if (!scenePlan) return;
-		const blob = new Blob([JSON.stringify(scenePlan, null, 2)], {
-			type: "application/json",
-		});
-		const url = URL.createObjectURL(blob);
-		const a = document.createElement("a");
-		a.href = url;
-		a.download = "scene-plan.json";
-		a.click();
-		URL.revokeObjectURL(url);
-	};
-
-	return (
-		<Dialog open={isOpen} onOpenChange={onOpenChange}>
-			<DialogContent
-				className="max-w-3xl"
-				onOpenAutoFocus={(e) => e.preventDefault()}
-			>
-				<DialogHeader>
-					<DialogTitle>Scene Plan</DialogTitle>
-					<DialogDescription>
-						{scenePlan
-							? `${scenePlan.scenes.length} scenes · ${scenePlan.totalDuration.toFixed(1)}s · Click a scene to expand`
-							: "Generate an AI scene plan from your transcript"}
-					</DialogDescription>
-				</DialogHeader>
-
-				<DialogBody className="p-0">
-					{loading ? (
-						<div className="flex items-center justify-center py-12">
-							<p className="text-muted-foreground text-sm">Loading...</p>
-						</div>
-					) : scenePlan ? (
-						<ScenePlanView
-							scenePlan={scenePlan}
-							expandedScene={expandedScene}
-							onToggleScene={(id) =>
-								setExpandedScene(expandedScene === id ? null : id)
-							}
-						/>
-					) : (
-						<div className="flex flex-col items-center justify-center gap-3 py-12">
-							<p className="text-muted-foreground text-sm">
-								{hasTranscript
-									? "No scene plan yet. Generate one from your transcript."
-									: "Generate a transcript first, then create a scene plan."}
-							</p>
-							<Button onClick={handleGenerate} disabled={!hasTranscript}>
-								{hasTranscript ? "Generate Scene Plan" : "Transcript Required"}
-							</Button>
-						</div>
-					)}
-				</DialogBody>
-
-				{scenePlan && (
-					<DialogFooter>
-						<Button variant="outline" size="sm" onClick={handleRegenerate}>
-							Regenerate
-						</Button>
-						<Button variant="outline" size="sm" onClick={handleExportJSON}>
-							Export JSON
-						</Button>
-						<Button onClick={() => onOpenChange(false)}>Done</Button>
-					</DialogFooter>
-				)}
-			</DialogContent>
-		</Dialog>
-	);
-}
+import { Sparkles, ChevronDown, ChevronRight, Play, Pencil, Check, X } from "lucide-react";
 
 const SCENE_TYPE_COLORS: Record<string, string> = {
 	Hook: "#F55B5B",
@@ -144,92 +36,379 @@ const SCENE_TYPE_COLORS: Record<string, string> = {
 	CTA: "#E8FF47",
 };
 
-function ScenePlanView({
-	scenePlan,
-	expandedScene,
-	onToggleScene,
+interface SceneStatus {
+	hasDirection: boolean;
+	hasAnimation: boolean;
+}
+
+export function ScenePlanDialog({
+	isOpen,
+	onOpenChange,
 }: {
-	scenePlan: ScenePlan;
-	expandedScene: number | null;
-	onToggleScene: (id: number) => void;
+	isOpen: boolean;
+	onOpenChange: (open: boolean) => void;
 }) {
+	const editor = useEditor();
+	const [boundaries, setBoundaries] = useState<SceneBoundaries | null>(null);
+	const [hasTranscript, setHasTranscript] = useState(false);
+	const [loading, setLoading] = useState(false);
+	const [sceneStatuses, setSceneStatuses] = useState<Record<number, SceneStatus>>({});
+	const [expandedScene, setExpandedScene] = useState<number | null>(null);
+	const [sceneDirections, setSceneDirections] = useState<Record<number, PlannedScene>>({});
+
+	const projectId = editor.project.getActive()?.metadata.id;
+
+	const loadData = useCallback(async () => {
+		if (!projectId) return;
+		setLoading(true);
+
+		const [boundariesResult, transcript] = await Promise.all([
+			getProjectBoundaries({ projectId }),
+			getProjectTranscript({ projectId }),
+		]);
+
+		setBoundaries(boundariesResult);
+		setHasTranscript(Boolean(transcript));
+
+		// Load per-scene statuses
+		if (boundariesResult) {
+			const statuses: Record<number, SceneStatus> = {};
+			const directions: Record<number, PlannedScene> = {};
+
+			await Promise.all(
+				boundariesResult.boundaries.map(async (b) => {
+					const [dir, code] = await Promise.all([
+						getSceneDirection({ projectId, sceneId: b.id }),
+						getSceneRemotionCode({ projectId, sceneId: b.id }),
+					]);
+					statuses[b.id] = {
+						hasDirection: Boolean(dir),
+						hasAnimation: Boolean(code),
+					};
+					if (dir) directions[b.id] = dir;
+				}),
+			);
+
+			setSceneStatuses(statuses);
+			setSceneDirections(directions);
+		}
+
+		setLoading(false);
+	}, [projectId]);
+
+	useEffect(() => {
+		if (isOpen) loadData();
+	}, [isOpen, loadData]);
+
+	// Poll for updates while dialog is open (picks up async AI results)
+	useEffect(() => {
+		if (!isOpen) return;
+		const interval = setInterval(loadData, 3000);
+		return () => clearInterval(interval);
+	}, [isOpen, loadData]);
+
+	const handleDetectBoundaries = () => {
+		onOpenChange(false);
+		invokeAction("detect-scene-boundaries");
+	};
+
+	const handleRedetect = async () => {
+		if (!projectId) return;
+		await deleteProjectBoundaries({ projectId });
+		onOpenChange(false);
+		invokeAction("detect-scene-boundaries");
+	};
+
+	const handleGenerateDirection = (sceneId: number) => {
+		invokeAction("generate-scene-direction", { sceneId });
+	};
+
+	const handleGenerateAnimation = (sceneId: number) => {
+		invokeAction("generate-scene-animation", { sceneId });
+	};
+
+	const handleSeekToScene = (boundary: SceneBoundary) => {
+		editor.playback.seek({ time: boundary.startTime });
+	};
+
+	const handleUpdateBoundary = async (
+		sceneId: number,
+		updates: Partial<Pick<SceneBoundary, "startTime" | "endTime" | "name">>,
+	) => {
+		if (!boundaries || !projectId) return;
+
+		const updated: SceneBoundaries = {
+			...boundaries,
+			boundaries: boundaries.boundaries.map((b) =>
+				b.id === sceneId ? { ...b, ...updates } : b,
+			),
+		};
+
+		setBoundaries(updated);
+		await setProjectBoundaries({ projectId, boundaries: updated });
+	};
+
 	return (
-		<ScrollArea className="h-[500px] px-4 py-3">
-			<div className="space-y-2">
-				{scenePlan.scenes.map((scene) => (
-					<SceneCard
-						key={scene.id}
-						scene={scene}
-						isExpanded={expandedScene === scene.id}
-						onToggle={() => onToggleScene(scene.id)}
-					/>
-				))}
-			</div>
-		</ScrollArea>
+		<Dialog open={isOpen} onOpenChange={onOpenChange}>
+			<DialogContent
+				className="max-w-3xl"
+				onOpenAutoFocus={(e) => e.preventDefault()}
+			>
+				<DialogHeader>
+					<DialogTitle>Scene Plan</DialogTitle>
+					<DialogDescription>
+						{boundaries
+							? `${boundaries.boundaries.length} scenes · ${boundaries.totalDuration.toFixed(1)}s`
+							: "Detect scene boundaries from your transcript"}
+					</DialogDescription>
+				</DialogHeader>
+
+				<DialogBody className="p-0">
+					{loading ? (
+						<div className="flex items-center justify-center py-12">
+							<p className="text-muted-foreground text-sm">Loading...</p>
+						</div>
+					) : boundaries ? (
+						<ScrollArea className="h-[500px] px-4 py-3">
+							<div className="space-y-2">
+								{boundaries.boundaries.map((boundary) => (
+									<SceneBoundaryCard
+										key={boundary.id}
+										boundary={boundary}
+										status={sceneStatuses[boundary.id]}
+										direction={sceneDirections[boundary.id]}
+										isExpanded={expandedScene === boundary.id}
+										onToggle={() =>
+											setExpandedScene(
+												expandedScene === boundary.id ? null : boundary.id,
+											)
+										}
+										onSeek={() => handleSeekToScene(boundary)}
+										onGenerateDirection={() => handleGenerateDirection(boundary.id)}
+										onGenerateAnimation={() => handleGenerateAnimation(boundary.id)}
+										onUpdateBoundary={(updates) =>
+											handleUpdateBoundary(boundary.id, updates)
+										}
+									/>
+								))}
+							</div>
+						</ScrollArea>
+					) : (
+						<div className="flex flex-col items-center justify-center gap-3 py-12">
+							<p className="text-muted-foreground text-sm">
+								{hasTranscript
+									? "Detect scene boundaries from your transcript, then work on each scene individually."
+									: "Generate a transcript first, then detect scene boundaries."}
+							</p>
+							<Button onClick={handleDetectBoundaries} disabled={!hasTranscript}>
+								{hasTranscript ? "Detect Scene Boundaries" : "Transcript Required"}
+							</Button>
+						</div>
+					)}
+				</DialogBody>
+
+				{boundaries && (
+					<DialogFooter>
+						<Button variant="outline" size="sm" onClick={handleRedetect}>
+							Re-detect Boundaries
+						</Button>
+						<Button onClick={() => onOpenChange(false)}>Done</Button>
+					</DialogFooter>
+				)}
+			</DialogContent>
+		</Dialog>
 	);
 }
 
-function SceneCard({
-	scene,
+function SceneBoundaryCard({
+	boundary,
+	status,
+	direction,
 	isExpanded,
 	onToggle,
+	onSeek,
+	onGenerateDirection,
+	onGenerateAnimation,
+	onUpdateBoundary,
 }: {
-	scene: PlannedScene;
+	boundary: SceneBoundary;
+	status?: SceneStatus;
+	direction?: PlannedScene;
 	isExpanded: boolean;
 	onToggle: () => void;
+	onSeek: () => void;
+	onGenerateDirection: () => void;
+	onGenerateAnimation: () => void;
+	onUpdateBoundary: (updates: Partial<Pick<SceneBoundary, "startTime" | "endTime" | "name">>) => void;
 }) {
-	const accentColor = SCENE_TYPE_COLORS[scene.type] || "#5BB8F5";
+	const accentColor = SCENE_TYPE_COLORS[boundary.type] || "#5BB8F5";
+	const [isEditingTime, setIsEditingTime] = useState(false);
+	const [editStart, setEditStart] = useState(boundary.startTime.toFixed(2));
+	const [editEnd, setEditEnd] = useState(boundary.endTime.toFixed(2));
+
+	const handleSaveTime = () => {
+		const newStart = Number.parseFloat(editStart);
+		const newEnd = Number.parseFloat(editEnd);
+		if (!Number.isNaN(newStart) && !Number.isNaN(newEnd) && newEnd > newStart) {
+			onUpdateBoundary({ startTime: newStart, endTime: newEnd });
+		}
+		setIsEditingTime(false);
+	};
 
 	return (
 		<div
-			className="border rounded-lg overflow-hidden cursor-pointer transition-colors hover:border-foreground/20"
+			className="border rounded-lg overflow-hidden transition-colors hover:border-foreground/20"
 			style={{ borderLeftColor: accentColor, borderLeftWidth: 3 }}
 		>
-			<button
-				type="button"
-				className="w-full text-left px-4 py-3 flex items-center justify-between gap-3"
-				onClick={onToggle}
-			>
-				<div className="flex items-center gap-3 min-w-0">
-					<span
-						className="text-xs font-medium px-2 py-0.5 rounded"
-						style={{ backgroundColor: `${accentColor}20`, color: accentColor }}
-					>
-						{scene.type}
-					</span>
-					<span className="text-sm font-medium truncate">{scene.name}</span>
-				</div>
-				<span className="text-muted-foreground text-xs shrink-0">
-					{scene.startTime.toFixed(1)}s – {scene.endTime.toFixed(1)}s
-				</span>
-			</button>
+			{/* Header */}
+			<div className="flex items-center gap-2 px-3 py-2.5">
+				<button type="button" onClick={onToggle} className="shrink-0">
+					{isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+				</button>
 
+				<span
+					className="text-xs font-medium px-2 py-0.5 rounded shrink-0"
+					style={{ backgroundColor: `${accentColor}20`, color: accentColor }}
+				>
+					{boundary.type}
+				</span>
+
+				<button
+					type="button"
+					className="text-sm font-medium truncate text-left flex-1 hover:underline"
+					onClick={onToggle}
+				>
+					{boundary.name}
+				</button>
+
+				{/* Time display / edit */}
+				{isEditingTime ? (
+					<div className="flex items-center gap-1 shrink-0">
+						<Input
+							value={editStart}
+							onChange={(e) => setEditStart(e.target.value)}
+							className="w-16 h-6 text-xs px-1"
+						/>
+						<span className="text-xs text-muted-foreground">–</span>
+						<Input
+							value={editEnd}
+							onChange={(e) => setEditEnd(e.target.value)}
+							className="w-16 h-6 text-xs px-1"
+						/>
+						<button type="button" onClick={handleSaveTime} className="text-green-500">
+							<Check size={14} />
+						</button>
+						<button type="button" onClick={() => setIsEditingTime(false)} className="text-red-400">
+							<X size={14} />
+						</button>
+					</div>
+				) : (
+					<button
+						type="button"
+						className="text-muted-foreground text-xs shrink-0 hover:text-foreground flex items-center gap-1"
+						onClick={() => {
+							setEditStart(boundary.startTime.toFixed(2));
+							setEditEnd(boundary.endTime.toFixed(2));
+							setIsEditingTime(true);
+						}}
+					>
+						{boundary.startTime.toFixed(1)}s – {boundary.endTime.toFixed(1)}s
+						<Pencil size={10} />
+					</button>
+				)}
+
+				{/* Seek button */}
+				<button
+					type="button"
+					onClick={onSeek}
+					className="text-muted-foreground hover:text-foreground shrink-0"
+					title="Seek to scene start"
+				>
+					<Play size={14} />
+				</button>
+
+				{/* Status indicators */}
+				<div className="flex items-center gap-1 shrink-0">
+					{status?.hasDirection && (
+						<span className="w-2 h-2 rounded-full bg-blue-400" title="Direction ready" />
+					)}
+					{status?.hasAnimation && (
+						<span className="w-2 h-2 rounded-full bg-green-400" title="Animation ready" />
+					)}
+				</div>
+			</div>
+
+			{/* Expanded content */}
 			{isExpanded && (
 				<div className="px-4 pb-4 space-y-3 border-t pt-3">
-					<p className="text-muted-foreground text-xs">{scene.description}</p>
-					<p className="text-sm leading-relaxed">{scene.text}</p>
+					<p className="text-muted-foreground text-xs leading-relaxed">
+						"{boundary.text}"
+					</p>
 
-					<div className="space-y-2">
-						<p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-							Animation Beats
-						</p>
-						{scene.animationDirection.beats.map((beat) => (
-							<div
-								key={beat.id}
-								className="bg-muted/30 rounded p-3 space-y-1.5 text-xs"
-							>
-								<div className="flex justify-between">
-									<span className="font-medium">{beat.id}</span>
-									<span className="text-muted-foreground">
-										{beat.timeRange[0].toFixed(1)}s – {beat.timeRange[1].toFixed(1)}s
-									</span>
+					{/* Action buttons */}
+					<div className="flex items-center gap-2">
+						{!status?.hasDirection ? (
+							<Button size="sm" variant="outline" onClick={onGenerateDirection}>
+								<Sparkles size={14} className="mr-1.5" />
+								Generate Direction
+							</Button>
+						) : (
+							<Button size="sm" variant="outline" onClick={onGenerateDirection}>
+								<Sparkles size={14} className="mr-1.5" />
+								Regenerate Direction
+							</Button>
+						)}
+
+						{status?.hasDirection && (
+							<>
+								{!status?.hasAnimation ? (
+									<Button size="sm" onClick={onGenerateAnimation}>
+										<Sparkles size={14} className="mr-1.5" />
+										Generate Animation
+									</Button>
+								) : (
+									<Button size="sm" variant="outline" onClick={onGenerateAnimation}>
+										Regenerate Animation
+									</Button>
+								)}
+							</>
+						)}
+					</div>
+
+					{/* Direction preview */}
+					{direction && (
+						<div className="space-y-2 mt-2">
+							<p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+								Animation Beats
+							</p>
+							{direction.animationDirection.beats.map((beat) => (
+								<div
+									key={beat.id}
+									className="bg-muted/30 rounded p-3 space-y-1.5 text-xs"
+								>
+									<div className="flex justify-between">
+										<span className="font-medium">{beat.id}</span>
+										<span className="text-muted-foreground">
+											{beat.timeRange[0].toFixed(1)}s – {beat.timeRange[1].toFixed(1)}s
+										</span>
+									</div>
+									<p className="text-muted-foreground leading-relaxed">
+										{beat.visual.slice(0, 200)}
+										{beat.visual.length > 200 ? "..." : ""}
+									</p>
 								</div>
-								<p className="text-muted-foreground leading-relaxed">
-									{beat.visual.slice(0, 200)}
-									{beat.visual.length > 200 ? "..." : ""}
-								</p>
-							</div>
-						))}
+							))}
+						</div>
+					)}
+
+					{/* Status summary */}
+					<div className="flex items-center gap-3 text-xs text-muted-foreground pt-1">
+						<span className={status?.hasDirection ? "text-blue-400" : ""}>
+							{status?.hasDirection ? "✓ Direction" : "○ No direction"}
+						</span>
+						<span className={status?.hasAnimation ? "text-green-400" : ""}>
+							{status?.hasAnimation ? "✓ Animation" : "○ No animation"}
+						</span>
 					</div>
 				</div>
 			)}

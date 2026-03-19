@@ -8,6 +8,7 @@ interface LayoutGuideSettings {
 
 interface PreviewOverlaysState {
 	bookmarks: boolean;
+	animations: boolean;
 }
 
 interface PreviewState {
@@ -31,6 +32,7 @@ interface PreviewState {
 
 const DEFAULT_PREVIEW_OVERLAYS: PreviewOverlaysState = {
 	bookmarks: true,
+	animations: false,
 };
 
 export const usePreviewStore = create<PreviewState>()(

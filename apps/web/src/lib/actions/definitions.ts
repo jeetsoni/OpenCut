@@ -166,6 +166,22 @@ export const ACTIONS = {
 		description: "AI-generate scene plan with animation directions from transcript",
 		category: "editing",
 	},
+	"detect-scene-boundaries": {
+		description: "AI-detect scene boundaries from transcript",
+		category: "editing",
+	},
+	"generate-scene-direction": {
+		description: "AI-generate design direction for a specific scene",
+		category: "editing",
+	},
+	"generate-scene-animation": {
+		description: "AI-generate Remotion animation code for a specific scene",
+		category: "editing",
+	},
+	"generate-animations": {
+		description: "AI-generate Remotion animation code from scene plan",
+		category: "editing",
+	},
 } as const satisfies Record<string, TActionDefinition>;
 
 export type TAction = keyof typeof ACTIONS;

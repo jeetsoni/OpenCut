@@ -18,7 +18,27 @@ import {
 	getProjectScenePlan,
 	setProjectScenePlan,
 } from "@/lib/scene-planner/scene-plan-store";
+import { generateRemotionCode } from "@/lib/remotion-renderer/generate-code";
+import {
+	getProjectRemotionCode,
+	setProjectRemotionCode,
+} from "@/lib/remotion-renderer/store";
+import { detectSceneBoundaries } from "@/lib/scene-planner/detect-boundaries";
+import {
+	getProjectBoundaries,
+	setProjectBoundaries,
+} from "@/lib/scene-planner/boundaries-store";
+import { generateSceneDirection } from "@/lib/scene-planner/generate-scene-direction";
+import {
+	getSceneDirection,
+	setSceneDirection,
+} from "@/lib/scene-planner/scene-direction-store";
+import { generateSceneRemotionCode } from "@/lib/remotion-renderer/generate-scene-code";
+import {
+	setSceneRemotionCode,
+} from "@/lib/remotion-renderer/scene-code-store";
 import { toast } from "sonner";
+import { useSceneStore } from "@/stores/scene-store";
 
 export function useEditorActions() {
 	const editor = useEditor();
@@ -458,6 +478,7 @@ export function useEditorActions() {
 	useActionHandler(
 		"generate-transcript",
 		() => {
+			console.log("[transcript] Action handler fired");
 			const config = getAIProviderConfig();
 			const hasGroq = Boolean(config?.groqApiKey);
 			if (!hasGroq) {
@@ -496,16 +517,20 @@ export function useEditorActions() {
 					const mediaAssets = editor.media.getAssets();
 					const duration = editor.timeline.getTotalDuration();
 
+					console.log("[transcript] tracks:", tracks.length, "assets:", mediaAssets.length, "duration:", duration);
+
 					if (duration === 0) {
 						toast.error("Timeline is empty", { id: toastId });
 						return;
 					}
 
+					console.log("[transcript] Creating audio buffer...");
 					const audioBuffer = await createTimelineAudioBuffer({
 						tracks,
 						mediaAssets,
 						duration,
 					});
+					console.log("[transcript] Audio buffer result:", audioBuffer ? `${audioBuffer.length} samples, ${audioBuffer.numberOfChannels}ch` : "null");
 
 					if (!audioBuffer) {
 						toast.error("No audio found", {
@@ -617,6 +642,306 @@ export function useEditorActions() {
 					const message =
 						error instanceof Error ? error.message : "Unknown error";
 					toast.error("Scene plan generation failed", {
+						id: toastId,
+						description: message,
+					});
+				}
+			})();
+		},
+		undefined,
+	);
+
+	useActionHandler(
+		"generate-animations",
+		() => {
+			const config = getAIProviderConfig();
+			if (!config?.apiKey) {
+				toast.error("AI provider not configured", {
+					description: "Go to the menu → AI Settings to add your API key.",
+				});
+				return;
+			}
+
+			const projectId = editor.project.getActive()?.metadata.id;
+			if (!projectId) {
+				toast.error("No active project");
+				return;
+			}
+
+			const toastId = toast.loading("Generating animations...", {
+				description: "Loading scene plan...",
+			});
+
+			void (async () => {
+				try {
+					const scenePlan = await getProjectScenePlan({ projectId });
+					if (!scenePlan) {
+						toast.error("No scene plan found", {
+							id: toastId,
+							description:
+								"Generate a scene plan first before creating animations.",
+						});
+						return;
+					}
+
+					const code = await generateRemotionCode({
+						scenePlan,
+						onProgress: (progress) => {
+							toast.loading(progress.message, { id: toastId });
+						},
+					});
+
+					await setProjectRemotionCode({ projectId, code });
+
+					toast.success("Animations generated", {
+						id: toastId,
+						description:
+							"Open the Scene Plan dialog → Animation Preview to see them.",
+					});
+				} catch (error: unknown) {
+					const message =
+						error instanceof Error ? error.message : "Unknown error";
+					toast.error("Animation generation failed", {
+						id: toastId,
+						description: message,
+					});
+				}
+			})();
+		},
+		undefined,
+	);
+
+	// --- Detect scene boundaries (lightweight, step 1) ---
+	useActionHandler(
+		"detect-scene-boundaries",
+		() => {
+			const config = getAIProviderConfig();
+			if (!config?.apiKey) {
+				toast.error("AI provider not configured", {
+					description: "Go to the menu → AI Settings to add your API key.",
+				});
+				return;
+			}
+
+			const projectId = editor.project.getActive()?.metadata.id;
+			if (!projectId) {
+				toast.error("No active project");
+				return;
+			}
+
+			const toastId = toast.loading("Detecting scene boundaries...", {
+				description: "Loading transcript...",
+			});
+
+			void (async () => {
+				try {
+					const transcript = await getProjectTranscript({ projectId });
+					if (!transcript) {
+						toast.error("No transcript found", {
+							id: toastId,
+							description: "Generate a transcript first.",
+						});
+						return;
+					}
+
+					const boundaries = await detectSceneBoundaries({
+						transcript,
+						onProgress: (p) => toast.loading(p.message, { id: toastId }),
+					});
+
+					await setProjectBoundaries({ projectId, boundaries });
+
+					// Close gaps first so clips are contiguous on the timeline
+					toast.loading("Applying scene splits...", { id: toastId });
+					editor.timeline.closeGaps();
+
+					// Merge adjacent clips that share the same media source and have
+					// contiguous source ranges. This collapses previously-split clips
+					// back into larger ones before we re-split at scene boundaries.
+					editor.timeline.mergeAdjacentElements();
+
+					// Now split at each scene boundary time
+					const splitTimes = boundaries.boundaries
+						.map((b) => b.startTime)
+						.filter((t) => t > 0)
+						.sort((a, b) => a - b);
+
+					for (const splitTime of splitTimes) {
+						const currentTracks = editor.timeline.getTracks();
+						const elementsAtTime: { trackId: string; elementId: string }[] = [];
+						for (const track of currentTracks) {
+							for (const el of track.elements) {
+								if (el.startTime < splitTime && el.startTime + el.duration > splitTime) {
+									elementsAtTime.push({ trackId: track.id, elementId: el.id });
+								}
+							}
+						}
+						if (elementsAtTime.length > 0) {
+							editor.timeline.splitElements({
+								elements: elementsAtTime,
+								splitTime,
+							});
+						}
+					}
+
+					// Build element→scene mapping
+					const updatedTracks = editor.timeline.getTracks();
+					const elementSceneMap: Record<string, number> = {};
+					for (const track of updatedTracks) {
+						for (const el of track.elements) {
+							const elMid = el.startTime + el.duration / 2;
+							const matchingBoundary = boundaries.boundaries.find(
+								(b) => elMid >= b.startTime && elMid < b.endTime,
+							);
+							if (matchingBoundary) {
+								elementSceneMap[el.id] = matchingBoundary.id;
+							}
+						}
+					}
+
+					// Update the scene store
+					await useSceneStore.getState().loadBoundaries(projectId);
+					useSceneStore.getState().setElementSceneMap(elementSceneMap);
+
+					toast.success("Scene boundaries applied", {
+						id: toastId,
+						description: `${boundaries.boundaries.length} scenes. Click any clip to inspect.`,
+					});
+				} catch (error: unknown) {
+					const message = error instanceof Error ? error.message : "Unknown error";
+					toast.error("Boundary detection failed", {
+						id: toastId,
+						description: message,
+					});
+				}
+			})();
+		},
+		undefined,
+	);
+
+	// --- Generate direction for a specific scene ---
+	useActionHandler(
+		"generate-scene-direction",
+		(args) => {
+			const sceneId = (args as { sceneId?: number })?.sceneId;
+			if (sceneId == null) {
+				toast.error("No scene selected");
+				return;
+			}
+
+			const config = getAIProviderConfig();
+			if (!config?.apiKey) {
+				toast.error("AI provider not configured");
+				return;
+			}
+
+			const projectId = editor.project.getActive()?.metadata.id;
+			if (!projectId) {
+				toast.error("No active project");
+				return;
+			}
+
+			const toastId = toast.loading("Generating scene direction...");
+
+			void (async () => {
+				try {
+					const [boundaries, transcript] = await Promise.all([
+						getProjectBoundaries({ projectId }),
+						getProjectTranscript({ projectId }),
+					]);
+
+					if (!boundaries) {
+						toast.error("No boundaries found", { id: toastId });
+						return;
+					}
+					if (!transcript) {
+						toast.error("No transcript found", { id: toastId });
+						return;
+					}
+
+					const boundary = boundaries.boundaries.find((b) => b.id === sceneId);
+					if (!boundary) {
+						toast.error("Scene not found", { id: toastId });
+						return;
+					}
+
+					const direction = await generateSceneDirection({
+						boundary,
+						transcript,
+						onProgress: (p) => toast.loading(p.message, { id: toastId }),
+					});
+
+					await setSceneDirection({ projectId, sceneId, direction });
+
+					// Refresh this scene in the store
+					await useSceneStore.getState().refreshScene(projectId, sceneId);
+
+					toast.success(`Direction ready for "${boundary.name}"`, { id: toastId });
+				} catch (error: unknown) {
+					const message = error instanceof Error ? error.message : "Unknown error";
+					toast.error("Direction generation failed", {
+						id: toastId,
+						description: message,
+					});
+				}
+			})();
+		},
+		undefined,
+	);
+
+	// --- Generate animation code for a specific scene ---
+	useActionHandler(
+		"generate-scene-animation",
+		(args) => {
+			const sceneId = (args as { sceneId?: number })?.sceneId;
+			if (sceneId == null) {
+				toast.error("No scene selected");
+				return;
+			}
+
+			const config = getAIProviderConfig();
+			if (!config?.apiKey) {
+				toast.error("AI provider not configured");
+				return;
+			}
+
+			const projectId = editor.project.getActive()?.metadata.id;
+			if (!projectId) {
+				toast.error("No active project");
+				return;
+			}
+
+			const toastId = toast.loading("Generating scene animation...");
+
+			void (async () => {
+				try {
+					const direction = await getSceneDirection({ projectId, sceneId });
+					if (!direction) {
+						toast.error("No direction found for this scene", {
+							id: toastId,
+							description: "Generate design direction first.",
+						});
+						return;
+					}
+
+					const code = await generateSceneRemotionCode({
+						scene: direction,
+						onProgress: (p) => toast.loading(p.message, { id: toastId }),
+					});
+
+					await setSceneRemotionCode({ projectId, sceneId, code });
+
+					// Refresh this scene in the store + enable animation overlay
+					await useSceneStore.getState().refreshScene(projectId, sceneId);
+					const { usePreviewStore } = await import("@/stores/preview-store");
+					usePreviewStore.getState().setOverlayVisibility({ overlay: "animations", isVisible: true });
+
+					toast.success(`Animation ready for "${direction.name}"`, {
+						id: toastId,
+					});
+				} catch (error: unknown) {
+					const message = error instanceof Error ? error.message : "Unknown error";
+					toast.error("Animation generation failed", {
 						id: toastId,
 						description: message,
 					});

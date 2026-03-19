@@ -3,7 +3,7 @@ import type {
 	StickerElement,
 	VideoElement,
 } from "@/types/timeline";
-import { BlendingSection, TransformSection } from "./sections";
+import { BlendingSection, SceneSection, TransformSection } from "./sections";
 
 export function VideoProperties({
 	element,
@@ -20,6 +20,7 @@ export function VideoProperties({
 				showTopBorder={false}
 			/>
 			<BlendingSection element={element} trackId={trackId} />
+			<SceneSection elementId={element.id} />
 		</div>
 	);
 }

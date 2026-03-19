@@ -174,6 +174,19 @@ async function resolveAudioBufferForVideoElement({
 	mediaAsset: MediaAsset;
 	audioContext: AudioContext;
 }): Promise<AudioBuffer | null> {
+	// First try the simple Web Audio API path — works for most video formats
+	// and avoids mediabunny's AudioSample GC issues
+	try {
+		console.log("[audio] Trying Web Audio API decode for:", mediaAsset.id);
+		const arrayBuffer = await mediaAsset.file.arrayBuffer();
+		const decoded = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+		console.log("[audio] Web Audio API decoded:", decoded.length, "samples,", decoded.numberOfChannels, "ch");
+		return decoded;
+	} catch (webAudioError) {
+		console.warn("[audio] Web Audio API decode failed, falling back to mediabunny:", webAudioError);
+	}
+
+	// Fallback: use mediabunny's demuxer for formats Web Audio can't handle
 	const input = new Input({
 		source: new BlobSource(mediaAsset.file),
 		formats: ALL_FORMATS,
@@ -181,8 +194,12 @@ async function resolveAudioBufferForVideoElement({
 
 	try {
 		const audioTrack = await input.getPrimaryAudioTrack();
-		if (!audioTrack) return null;
+		if (!audioTrack) {
+			console.warn("[audio] No primary audio track found in video asset:", mediaAsset.id);
+			return null;
+		}
 
+		console.log("[audio] Decoding audio via mediabunny for:", mediaAsset.id);
 		const sink = new AudioBufferSink(audioTrack);
 		const targetSampleRate = audioContext.sampleRate;
 
@@ -193,6 +210,8 @@ async function resolveAudioBufferForVideoElement({
 			chunks.push(buffer);
 			totalSamples += buffer.length;
 		}
+
+		console.log("[audio] Decoded", chunks.length, "chunks,", totalSamples, "total samples");
 
 		if (chunks.length === 0) return null;
 

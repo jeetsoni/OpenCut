@@ -43,6 +43,7 @@ import {
 	RemoveSilenceCommand,
 	RemoveRetakesCommand,
 	CloseGapsCommand,
+	MergeAdjacentElementsCommand,
 } from "@/lib/commands/timeline";
 import { BatchCommand, PreviewTracker } from "@/lib/commands";
 import type { InsertElementParams } from "@/lib/commands/timeline/element/insert-element";
@@ -282,6 +283,11 @@ export class TimelineManager {
 
 	closeGaps(): void {
 		const command = new CloseGapsCommand();
+		this.editor.command.execute({ command });
+	}
+
+	mergeAdjacentElements(): void {
+		const command = new MergeAdjacentElementsCommand();
 		this.editor.command.execute({ command });
 	}
 

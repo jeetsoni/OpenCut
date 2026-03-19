@@ -111,6 +111,14 @@ export class RemoveRetakesCommand extends Command {
 			const audioBlob = group[0].audioBlob;
 			const { samples, sampleRate } = await decodeAudioToFloat32({ audioBlob });
 
+			// Compute the union of source ranges actually used in the timeline
+			const usedRanges = group.map(({ trackId, elementId }) => {
+				const track = tracks.find((t) => t.id === trackId);
+				const element = track?.elements.find((e) => e.id === elementId);
+				if (!element) return null;
+				return { start: element.trimStart, end: element.trimStart + element.duration };
+			}).filter(Boolean) as { start: number; end: number }[];
+
 			// Detect silence on the full source audio
 			const { audibleParts } = detectSilence({
 				samples,
@@ -120,10 +128,19 @@ export class RemoveRetakesCommand extends Command {
 
 			if (audibleParts.length <= 1) continue;
 
-			// Transcribe all segments (cached, one Groq call per segment)
+			// Only transcribe segments that overlap with clips still in the timeline
+			const relevantParts = audibleParts.filter((seg) =>
+				usedRanges.some(
+					(range) => seg.startTime < range.end && seg.endTime > range.start,
+				),
+			);
+
+			if (relevantParts.length <= 1) continue;
+
+			// Transcribe only the relevant segments
 			const transcribed = await transcribeSegments({
 				audioBlob,
-				segments: audibleParts,
+				segments: relevantParts,
 				mediaId,
 				onProgress: this.onProgress,
 			});
@@ -138,11 +155,11 @@ export class RemoveRetakesCommand extends Command {
 
 			const keepIndices = await analyzeRetakes({ transcribed });
 
-			if (keepIndices.length === 0 || keepIndices.length === audibleParts.length) continue;
+			if (keepIndices.length === 0 || keepIndices.length === relevantParts.length) continue;
 
 			const keptSegments = keepIndices
 				.sort((a, b) => a - b)
-				.map((idx) => audibleParts[idx])
+				.map((idx) => relevantParts[idx])
 				.filter(Boolean);
 
 			// Apply to every element in this group

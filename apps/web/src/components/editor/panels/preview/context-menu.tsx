@@ -34,6 +34,14 @@ export function PreviewContextMenu({
 			>
 				Show bookmarks
 			</ContextMenuCheckboxItem>
+			<ContextMenuCheckboxItem
+				checked={overlays.animations}
+				onCheckedChange={(checked) =>
+					setOverlayVisibility({ overlay: "animations", isVisible: !!checked })
+				}
+			>
+				Show animations
+			</ContextMenuCheckboxItem>
 			<ContextMenuItem inset>Show grid</ContextMenuItem>
 		</ContextMenuContent>
 	);

@@ -13,6 +13,8 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { OcSocialIcon } from "@opencut/ui/icons";
 import { Separator } from "@/components/ui/separator";
+import { Sparkles } from "lucide-react";
+import { usePreviewStore } from "@/stores/preview-store";
 
 export function PreviewToolbar({
 	isFullscreen,
@@ -26,6 +28,7 @@ export function PreviewToolbar({
 	const currentTime = editor.playback.getCurrentTime();
 	const totalDuration = editor.timeline.getTotalDuration();
 	const fps = editor.project.getActive().settings.fps;
+	const { overlays, toggleOverlayVisibility } = usePreviewStore();
 
 	return (
 		<div className="grid grid-cols-[1fr_auto_1fr] items-center pb-3 pt-5 px-5">
@@ -57,6 +60,15 @@ export function PreviewToolbar({
 			</Button>
 
 			<div className="justify-self-end flex items-center gap-2.5">
+				<Button
+					variant={overlays.animations ? "secondary" : "text"}
+					size="sm"
+					className="[&_svg]:size-auto px-1 h-7"
+					onClick={() => toggleOverlayVisibility({ overlay: "animations" })}
+					title={overlays.animations ? "Hide animations" : "Show animations"}
+				>
+					<Sparkles size={16} />
+				</Button>
 				<Button
 					variant="secondary"
 					size="sm"

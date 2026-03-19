@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { AudioProperties } from "./audio-properties";
 import { VideoProperties } from "./video-properties";
@@ -12,6 +13,7 @@ import { useElementSelection } from "@/hooks/timeline/element/use-element-select
 import { usePropertiesStore } from "@/stores/properties-store";
 import { isVisualElement } from "@/lib/timeline";
 import type { TimelineElement, TimelineTrack } from "@/types/timeline";
+import { useSceneStore } from "@/stores/scene-store";
 
 function ElementProperties({
 	track,
@@ -45,6 +47,27 @@ export function PropertiesPanel() {
 	const clipEffectsTarget = usePropertiesStore(
 		(state) => state.clipEffectsTarget,
 	);
+	const elementSceneMap = useSceneStore((s) => s.elementSceneMap);
+	const selectedSceneId = useSceneStore((s) => s.selectedSceneId);
+	const selectScene = useSceneStore((s) => s.selectScene);
+
+	// Auto-select scene when a mapped element is clicked
+	useEffect(() => {
+		if (selectedElements.length === 1) {
+			const sceneId = elementSceneMap[selectedElements[0].elementId];
+			if (sceneId != null) {
+				selectScene(sceneId);
+				return;
+			}
+		}
+		// Clear scene selection when clicking non-scene elements or deselecting
+		if (selectedSceneId != null && selectedElements.length > 0) {
+			const anyMapped = selectedElements.some(
+				(el) => elementSceneMap[el.elementId] != null,
+			);
+			if (!anyMapped) selectScene(null);
+		}
+	}, [selectedElements, elementSceneMap, selectScene, selectedSceneId]);
 
 	const clipEffectsTrack = clipEffectsTarget
 		? editor.timeline.getTrackById({ trackId: clipEffectsTarget.trackId })
