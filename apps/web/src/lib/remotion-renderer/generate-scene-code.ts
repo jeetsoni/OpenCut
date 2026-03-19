@@ -5,10 +5,11 @@
  * generates a Remotion component for just that scene.
  */
 
-import { generateText } from "ai";
+import { generateText, tool, stepCountIs } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 import { getAIProviderConfig } from "@/lib/ai-provider";
+import { z } from "zod";
 import type { PlannedScene } from "@/lib/scene-planner/schema";
 
 export interface SceneCodeGenProgress {
@@ -24,7 +25,7 @@ function buildModel() {
 
 	if (config.provider === "gemini") {
 		const google = createGoogleGenerativeAI({ apiKey: config.apiKey });
-		return google(config.model || "gemini-2.5-flash");
+		return google(config.model || "gemini-3.1-pro-preview");
 	}
 
 	const openai = createOpenAI({
@@ -88,6 +89,128 @@ function Main({ scene }) {
 }
 
 Return ONLY the code. No markdown, no explanation.`;
+
+const SCENE_CODE_TWEAK_SYSTEM_PROMPT = `You are a precise code editor for Remotion animation components. You have two tools:
+
+1. read_code — Returns the current animation code. ALWAYS call this first.
+2. edit_code — Replaces an exact substring in the code with a new substring.
+
+## Workflow
+1. Call read_code to see the current code
+2. Identify the minimal change needed for the user's request
+3. Call edit_code with the exact oldStr to find and the newStr to replace it with
+4. If edit_code fails (oldStr not found), read the error, call read_code again, and retry with the corrected oldStr
+
+## Rules
+- Make the SMALLEST possible edit. For a color change, just replace the hex value.
+- oldStr must be an EXACT substring of the current code (whitespace-sensitive)
+- You can call edit_code multiple times for multi-part changes
+- Do NOT rewrite the entire function — only patch what's needed
+- After all edits, respond with a brief summary of what you changed`;
+
+/**
+ * Apply a string replacement to code, with error feedback.
+ */
+function applyEdit(code: string, oldStr: string, newStr: string): { ok: true; code: string } | { ok: false; error: string } {
+	if (oldStr === newStr) {
+		return { ok: false, error: "oldStr and newStr are identical — nothing to change." };
+	}
+
+	const idx = code.indexOf(oldStr);
+	if (idx === -1) {
+		// Provide helpful context: show a snippet around where it might be
+		const lines = code.split("\n");
+		const preview = lines.slice(0, Math.min(5, lines.length)).join("\n");
+		return {
+			ok: false,
+			error: `oldStr not found in code. Make sure it matches exactly (whitespace matters). First 5 lines of current code:\n${preview}`,
+		};
+	}
+
+	// Check for multiple occurrences
+	const secondIdx = code.indexOf(oldStr, idx + 1);
+	if (secondIdx !== -1) {
+		return {
+			ok: false,
+			error: `oldStr matches multiple locations (at index ${idx} and ${secondIdx}). Include more surrounding context to make it unique.`,
+		};
+	}
+
+	const updated = code.slice(0, idx) + newStr + code.slice(idx + oldStr.length);
+	return { ok: true, code: updated };
+}
+
+const MAX_TWEAK_STEPS = 10;
+
+/**
+ * Tweak existing Remotion code using an agentic tool-based approach.
+ * The AI reads the code, then makes surgical edits via string replacement.
+ */
+export async function tweakSceneRemotionCode({
+	existingCode,
+	tweakPrompt,
+	scene,
+	onProgress,
+}: {
+	existingCode: string;
+	tweakPrompt: string;
+	scene: PlannedScene;
+	onProgress?: (progress: SceneCodeGenProgress) => void;
+}): Promise<string> {
+	onProgress?.({ phase: "preparing", message: `Preparing tweak for "${scene.name}"...` });
+
+	const model = buildModel();
+	let currentCode = existingCode;
+
+	const userPrompt = `The user wants to tweak the animation for scene "${scene.name}" (${scene.type}, ${scene.startTime.toFixed(1)}s–${scene.endTime.toFixed(1)}s).
+
+User's request: ${tweakPrompt}
+
+Start by calling read_code to see the current animation, then use edit_code to make the minimal changes needed.`;
+
+	onProgress?.({ phase: "generating", message: `Tweaking "${scene.name}"...` });
+
+	await generateText({
+		model,
+		system: SCENE_CODE_TWEAK_SYSTEM_PROMPT,
+		prompt: userPrompt,
+		temperature: 0.1,
+		stopWhen: stepCountIs(MAX_TWEAK_STEPS),
+		tools: {
+			read_code: tool({
+				description: "Read the current animation code for this scene.",
+				inputSchema: z.object({}),
+				execute: async () => {
+					return { code: currentCode };
+				},
+			}),
+			edit_code: tool({
+				description: "Replace an exact substring in the animation code. oldStr must match exactly (whitespace-sensitive). Returns success or an error message to help you retry.",
+				inputSchema: z.object({
+					oldStr: z.string().describe("The exact substring to find and replace"),
+					newStr: z.string().describe("The replacement string"),
+				}),
+				execute: async ({ oldStr, newStr }: { oldStr: string; newStr: string }) => {
+					const result = applyEdit(currentCode, oldStr, newStr);
+					if (result.ok) {
+						currentCode = result.code;
+						return { success: true, message: "Edit applied successfully." };
+					}
+					return { success: false, message: result.error };
+				},
+			}),
+		},
+	});
+
+	// Validate the final code still has Main
+	if (!currentCode.includes("Main")) {
+		throw new Error("Tweaked code is missing the Main component — edits may have broken the structure.");
+	}
+
+	onProgress?.({ phase: "done", message: `Tweak applied for "${scene.name}"` });
+
+	return currentCode;
+}
 
 /**
  * Generate Remotion code for a single scene.

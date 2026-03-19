@@ -33,9 +33,10 @@ import {
 	getSceneDirection,
 	setSceneDirection,
 } from "@/lib/scene-planner/scene-direction-store";
-import { generateSceneRemotionCode } from "@/lib/remotion-renderer/generate-scene-code";
+import { generateSceneRemotionCode, tweakSceneRemotionCode } from "@/lib/remotion-renderer/generate-scene-code";
 import {
 	setSceneRemotionCode,
+	getSceneRemotionCode,
 } from "@/lib/remotion-renderer/scene-code-store";
 import { toast } from "sonner";
 import { useSceneStore } from "@/stores/scene-store";
@@ -942,6 +943,146 @@ export function useEditorActions() {
 				} catch (error: unknown) {
 					const message = error instanceof Error ? error.message : "Unknown error";
 					toast.error("Animation generation failed", {
+						id: toastId,
+						description: message,
+					});
+				}
+			})();
+		},
+		undefined,
+	);
+
+	// --- Bake animations to MP4 via server-side Remotion render ---
+	useActionHandler(
+		"bake-animation",
+		() => {
+			const projectId = editor.project.getActive()?.metadata.id;
+			if (!projectId) {
+				toast.error("No active project");
+				return;
+			}
+
+			const toastId = toast.loading("Baking animations...", {
+				description: "Gathering scene data...",
+			});
+
+			void (async () => {
+				try {
+					const { bakeAnimation } = await import(
+						"@/services/renderer/bake-animation"
+					);
+
+					const result = await bakeAnimation({
+						projectId,
+						fps: activeProject.settings.fps,
+						width: activeProject.settings.canvasSize.width,
+						height: activeProject.settings.canvasSize.height,
+						onProgress: (status) => {
+							toast.loading("Baking animations...", {
+								id: toastId,
+								description: status,
+							});
+						},
+					});
+
+					if (!result.success) {
+						toast.error("Animation bake failed", {
+							id: toastId,
+							description: result.error,
+						});
+						return;
+					}
+
+					// Create a File from the blob so it can be added as a media asset
+					const file = new File([result.blob], "animation-overlay.mp4", {
+						type: "video/mp4",
+					});
+
+					await editor.media.addMediaAsset({
+						file,
+						name: "Animation Overlay",
+					});
+
+					toast.success("Animation baked successfully", {
+						id: toastId,
+						description:
+							"The animation MP4 has been added to your media assets. Drag it onto the timeline as an overlay track for export.",
+					});
+				} catch (error: unknown) {
+					const message =
+						error instanceof Error ? error.message : "Unknown error";
+					toast.error("Animation bake failed", {
+						id: toastId,
+						description: message,
+					});
+				}
+			})();
+		},
+		undefined,
+	);
+
+	// --- Tweak existing animation code for a specific scene ---
+	useActionHandler(
+		"tweak-scene-animation",
+		(args) => {
+			const { sceneId, tweakPrompt } = (args as { sceneId?: number; tweakPrompt?: string }) ?? {};
+			if (sceneId == null || !tweakPrompt?.trim()) {
+				toast.error("Scene and tweak instructions required");
+				return;
+			}
+
+			const config = getAIProviderConfig();
+			if (!config?.apiKey) {
+				toast.error("AI provider not configured");
+				return;
+			}
+
+			const projectId = editor.project.getActive()?.metadata.id;
+			if (!projectId) {
+				toast.error("No active project");
+				return;
+			}
+
+			const toastId = toast.loading("Tweaking animation...");
+
+			void (async () => {
+				try {
+					const [direction, codeResult] = await Promise.all([
+						getSceneDirection({ projectId, sceneId }),
+						getSceneRemotionCode({ projectId, sceneId }),
+					]);
+
+					if (!direction) {
+						toast.error("No direction found", { id: toastId });
+						return;
+					}
+					if (!codeResult) {
+						toast.error("No existing animation to tweak", {
+							id: toastId,
+							description: "Generate an animation first.",
+						});
+						return;
+					}
+
+					const code = await tweakSceneRemotionCode({
+						existingCode: codeResult.code,
+						tweakPrompt: tweakPrompt.trim(),
+						scene: direction,
+						onProgress: (p) => toast.loading(p.message, { id: toastId }),
+					});
+
+					await setSceneRemotionCode({ projectId, sceneId, code });
+
+					await useSceneStore.getState().refreshScene(projectId, sceneId);
+					const { usePreviewStore } = await import("@/stores/preview-store");
+					usePreviewStore.getState().setOverlayVisibility({ overlay: "animations", isVisible: true });
+
+					toast.success(`Animation tweaked for "${direction.name}"`, {
+						id: toastId,
+					});
+				} catch (error: unknown) {
+					const message = error instanceof Error ? error.message : "Unknown error";
+					toast.error("Tweak failed", {
 						id: toastId,
 						description: message,
 					});

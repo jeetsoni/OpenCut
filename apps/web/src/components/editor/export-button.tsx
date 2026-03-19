@@ -15,7 +15,7 @@ import { Progress } from "@/components/ui/progress";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/utils/ui";
 import { getExportMimeType, getExportFileExtension, downloadBuffer } from "@/lib/export";
-import { Check, Copy, Download, RotateCcw } from "lucide-react";
+import { Check, Copy, Download, Film, RotateCcw } from "lucide-react";
 import {
 	EXPORT_FORMAT_VALUES,
 	EXPORT_QUALITY_VALUES,
@@ -30,6 +30,9 @@ import {
 } from "@/components/editor/panels/properties/section";
 import { useEditor } from "@/hooks/use-editor";
 import { DEFAULT_EXPORT_OPTIONS } from "@/constants/export-constants";
+import { usePreviewStore } from "@/stores/preview-store";
+import { useSceneStore } from "@/stores/scene-store";
+import { invokeAction } from "@/lib/actions";
 
 function isExportFormat(value: string): value is ExportFormat {
 	return EXPORT_FORMAT_VALUES.some((formatValue) => formatValue === value);
@@ -103,6 +106,10 @@ function ExportPopover({
 	const [shouldIncludeAudio, setShouldIncludeAudio] = useState<boolean>(
 		DEFAULT_EXPORT_OPTIONS.includeAudio ?? true,
 	);
+
+	const overlays = usePreviewStore((s) => s.overlays);
+	const sceneStatuses = useSceneStore((s) => s.sceneStatuses);
+	const hasAnimations = overlays.animations && Object.values(sceneStatuses).some((s) => s.hasAnimation);
 
 	const handleExport = async () => {
 		if (!activeProject) return;
@@ -241,7 +248,23 @@ function ExportPopover({
 									</Section>
 								</div>
 
-								<div className="p-3 pt-0">
+								<div className="p-3 pt-0 flex flex-col gap-2">
+									{hasAnimations && (
+										<div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2.5">
+											<p className="text-xs text-amber-200 mb-2">
+												Animations detected. Bake them to MP4 first for a fast, stable export.
+											</p>
+											<Button
+												variant="outline"
+												size="sm"
+												className="w-full gap-1.5 text-xs"
+												onClick={() => invokeAction("bake-animation")}
+											>
+												<Film className="size-3.5" />
+												Bake Animations
+											</Button>
+										</div>
+									)}
 									<Button onClick={handleExport} className="w-full gap-2">
 										<Download className="size-4" />
 										Export

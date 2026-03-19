@@ -20,6 +20,8 @@ export interface SceneStatus {
 	hasDirection: boolean;
 	hasAnimation: boolean;
 	direction: PlannedScene | null;
+	/** Runtime error from the animation component, if any */
+	animationError: string | null;
 }
 
 interface SceneState {
@@ -42,6 +44,8 @@ interface SceneState {
 	selectScene: (sceneId: number | null) => void;
 	/** Refresh a single scene's status from IndexedDB */
 	refreshScene: (projectId: string, sceneId: number) => Promise<void>;
+	/** Set a runtime animation error for a scene */
+	setSceneError: (sceneId: number, error: string | null) => void;
 	/** Set the element→scene mapping after splits */
 	setElementSceneMap: (map: Record<string, number>) => void;
 	/** Get scene ID for a given element */
@@ -76,6 +80,7 @@ export const useSceneStore = create<SceneState>()((set, get) => ({
 					hasDirection: Boolean(dir),
 					hasAnimation: Boolean(code),
 					direction: dir,
+					animationError: null,
 				};
 			}),
 		);
@@ -129,9 +134,23 @@ export const useSceneStore = create<SceneState>()((set, get) => ({
 					hasDirection: Boolean(dir),
 					hasAnimation: Boolean(code),
 					direction: dir,
+					animationError: null,
 				},
 			},
 		}));
+	},
+
+	setSceneError: (sceneId, error) => {
+		set((state) => {
+			const existing = state.sceneStatuses[sceneId];
+			if (!existing) return state;
+			return {
+				sceneStatuses: {
+					...state.sceneStatuses,
+					[sceneId]: { ...existing, animationError: error },
+				},
+			};
+		});
 	},
 
 	clear: () =>

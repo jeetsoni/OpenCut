@@ -8,7 +8,7 @@
 import React from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { flushSync } from "react-dom";
-import html2canvas from "html2canvas";
+import type html2canvas from "html2canvas";
 import { EditorFrameContext } from "@/lib/remotion-renderer/compile";
 import { compileForEditorOverlay } from "@/lib/remotion-renderer/compile";
 import { getSceneRemotionCode } from "@/lib/remotion-renderer/scene-code-store";
@@ -77,7 +77,7 @@ export async function compileExportScenes({
 export class AnimationFrameRenderer {
 	private scenes: CompiledExportScene[];
 	private fps: number;
-	private frameCache = new Map<string, HTMLCanvasElement>();
+	private frameCache = new Map<string, ImageBitmap>();
 
 	constructor({ scenes, fps }: { scenes: CompiledExportScene[]; fps: number }) {
 		this.scenes = scenes;
@@ -86,6 +86,9 @@ export class AnimationFrameRenderer {
 
 	/**
 	 * Pre-render all animation frames (Remotion component only, no PiP video).
+	 *
+	 * Stores frames as ImageBitmaps (GPU-backed, ~10x lighter than HTMLCanvasElement)
+	 * and reuses a single scratch canvas for html2canvas captures.
 	 */
 	async preRender({
 		onProgress,
@@ -106,6 +109,8 @@ export class AnimationFrameRenderer {
 		document.body.appendChild(container);
 		const root = createRoot(container);
 
+		const { default: html2canvasFn } = await import("html2canvas");
+
 		let done = 0;
 		try {
 			for (const { scene, count } of sceneFrames) {
@@ -120,7 +125,7 @@ export class AnimationFrameRenderer {
 						);
 					});
 
-					const captured = await html2canvas(container, {
+					const captured = await html2canvasFn(container, {
 						width: COMP_WIDTH,
 						height: COMP_HEIGHT,
 						backgroundColor: null,
@@ -128,7 +133,11 @@ export class AnimationFrameRenderer {
 						logging: false,
 						useCORS: true,
 					});
-					this.frameCache.set(`${scene.sceneId}:${frame}`, captured);
+
+					// Convert to ImageBitmap (GPU-backed) and let the canvas be GC'd
+					const bitmap = await createImageBitmap(captured);
+					this.frameCache.set(`${scene.sceneId}:${frame}`, bitmap);
+
 					done++;
 					onProgress?.(done / total);
 				}
@@ -275,6 +284,9 @@ export class AnimationFrameRenderer {
 	}
 
 	dispose(): void {
+		for (const bitmap of this.frameCache.values()) {
+			bitmap.close();
+		}
 		this.frameCache.clear();
 	}
 }

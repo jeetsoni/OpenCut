@@ -1,9 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { useSceneStore } from "@/stores/scene-store";
 import { invokeAction } from "@/lib/actions";
-import { Sparkles, Play } from "lucide-react";
+import { Sparkles, Play, Pencil, AlertTriangle, Wrench } from "lucide-react";
 import { useEditor } from "@/hooks/use-editor";
 import {
 	Section,
@@ -28,6 +30,8 @@ export function SceneSection({ elementId }: { elementId: string }) {
 	const boundaries = useSceneStore((s) => s.boundaries);
 	const elementSceneMap = useSceneStore((s) => s.elementSceneMap);
 	const sceneStatuses = useSceneStore((s) => s.sceneStatuses);
+	const [tweakPrompt, setTweakPrompt] = useState("");
+	const [showTweak, setShowTweak] = useState(false);
 
 	const sceneId = elementSceneMap[elementId];
 	const boundary = boundaries?.boundaries.find((b) => b.id === sceneId);
@@ -87,6 +91,74 @@ export function SceneSection({ elementId }: { elementId: string }) {
 									? "Regenerate Animation"
 									: "Generate Animation"}
 							</Button>
+						)}
+
+						{status?.hasAnimation && (
+							<>
+								<Button
+									size="sm"
+									variant="outline"
+									className="w-full"
+									onClick={() => setShowTweak((v) => !v)}
+								>
+									<Pencil size={14} className="mr-1.5" />
+									Tweak Animation
+								</Button>
+								{showTweak && (
+									<div className="flex flex-col gap-1.5">
+										<Textarea
+											placeholder="e.g. change accent color to blue, move title higher, make text bigger..."
+											value={tweakPrompt}
+											onChange={(e) => setTweakPrompt(e.target.value)}
+											className="text-xs min-h-[60px] resize-none"
+											rows={2}
+										/>
+										<Button
+											size="sm"
+											className="w-full"
+											disabled={!tweakPrompt.trim()}
+											onClick={() => {
+												invokeAction("tweak-scene-animation", {
+													sceneId,
+													tweakPrompt,
+												});
+												setTweakPrompt("");
+												setShowTweak(false);
+											}}
+										>
+											<Sparkles size={14} className="mr-1.5" />
+											Apply Tweak
+										</Button>
+									</div>
+								)}
+							</>
+						)}
+
+						{status?.animationError && (
+							<div className="rounded border border-red-500/30 bg-red-500/10 p-2 space-y-1.5">
+								<div className="flex items-start gap-1.5">
+									<AlertTriangle size={12} className="text-red-400 mt-0.5 shrink-0" />
+									<p className="text-[11px] text-red-400 leading-relaxed break-all">
+										{status.animationError.length > 200
+											? `${status.animationError.slice(0, 200)}...`
+											: status.animationError}
+									</p>
+								</div>
+								<Button
+									size="sm"
+									variant="destructive"
+									className="w-full"
+									onClick={() => {
+										invokeAction("tweak-scene-animation", {
+											sceneId,
+											tweakPrompt: `Fix this runtime error in the animation code: "${status.animationError}". The component crashes when rendering. Fix the issue — likely an undefined variable, missing component, or incorrect reference. Only available globals are: React, useState, useEffect, useMemo, useCallback, AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig, interpolate, spring, Easing. Do NOT use any other imports or components.`,
+										});
+									}}
+								>
+									<Wrench size={14} className="mr-1.5" />
+									Auto-Fix Animation
+								</Button>
+							</div>
 						)}
 
 						<Button

@@ -13,8 +13,9 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { OcSocialIcon } from "@opencut/ui/icons";
 import { Separator } from "@/components/ui/separator";
-import { Sparkles } from "lucide-react";
+import { Sparkles, Film } from "lucide-react";
 import { usePreviewStore } from "@/stores/preview-store";
+import { useSceneStore } from "@/stores/scene-store";
 
 export function PreviewToolbar({
 	isFullscreen,
@@ -29,6 +30,8 @@ export function PreviewToolbar({
 	const totalDuration = editor.timeline.getTotalDuration();
 	const fps = editor.project.getActive().settings.fps;
 	const { overlays, toggleOverlayVisibility } = usePreviewStore();
+	const sceneStatuses = useSceneStore((s) => s.sceneStatuses);
+	const hasAnimations = Object.values(sceneStatuses).some((s) => s.hasAnimation);
 
 	return (
 		<div className="grid grid-cols-[1fr_auto_1fr] items-center pb-3 pt-5 px-5">
@@ -69,6 +72,18 @@ export function PreviewToolbar({
 				>
 					<Sparkles size={16} />
 				</Button>
+				{hasAnimations && (
+					<Button
+						variant="outline"
+						size="sm"
+						className="[&_svg]:size-auto h-7 gap-1 px-2 text-xs"
+						onClick={() => invokeAction("bake-animation")}
+						title="Render animations to MP4 for fast export"
+					>
+						<Film size={14} />
+						Bake
+					</Button>
+				)}
 				<Button
 					variant="secondary"
 					size="sm"

@@ -12,7 +12,12 @@ import { buildScene } from "@/services/renderer/scene-builder";
 import { getLastFrameTime } from "@/lib/time";
 import { PreviewInteractionOverlay } from "./preview-interaction-overlay";
 import { BookmarkNoteOverlay } from "./bookmark-note-overlay";
-import { AnimationOverlay } from "./animation-overlay";
+import dynamic from "next/dynamic";
+
+const AnimationOverlay = dynamic(
+	() => import("./animation-overlay").then((mod) => ({ default: mod.AnimationOverlay })),
+	{ ssr: false },
+);
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { usePreviewStore } from "@/stores/preview-store";
 import { PreviewContextMenu } from "./context-menu";

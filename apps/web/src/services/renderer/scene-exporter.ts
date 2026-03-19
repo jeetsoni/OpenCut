@@ -46,6 +46,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 	private quality: ExportQuality;
 	private shouldIncludeAudio: boolean;
 	private audioBuffer?: AudioBuffer;
+	private _baseSnapshotCanvas?: HTMLCanvasElement;
 
 	private isCancelled = false;
 
@@ -142,11 +143,13 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 			// Composite animation overlay on top if available
 			if (animationRenderer) {
 				try {
-					// Snapshot the base video frame before animation replaces it
-					const baseSnapshot = document.createElement("canvas");
-					baseSnapshot.width = this.renderer.width;
-					baseSnapshot.height = this.renderer.height;
-					const snapCtx = baseSnapshot.getContext("2d");
+					// Reuse a single snapshot canvas instead of allocating per frame
+					if (!this._baseSnapshotCanvas) {
+						this._baseSnapshotCanvas = document.createElement("canvas");
+						this._baseSnapshotCanvas.width = this.renderer.width;
+						this._baseSnapshotCanvas.height = this.renderer.height;
+					}
+					const snapCtx = this._baseSnapshotCanvas.getContext("2d");
 					if (snapCtx) {
 						snapCtx.drawImage(this.renderer.canvas, 0, 0);
 					}
@@ -157,7 +160,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 						ctx,
 						canvasWidth: this.renderer.width,
 						canvasHeight: this.renderer.height,
-						baseCanvas: baseSnapshot,
+						baseCanvas: this._baseSnapshotCanvas,
 					});
 				} catch (err) {
 					console.warn("[Export] Animation frame failed at", time, err);

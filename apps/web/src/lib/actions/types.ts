@@ -10,6 +10,7 @@ export type TActionArgsMap = {
 	"jump-backward": { seconds: number } | undefined;
 	"generate-scene-direction": { sceneId: number } | undefined;
 	"generate-scene-animation": { sceneId: number } | undefined;
+	"tweak-scene-animation": { sceneId: number; tweakPrompt: string };
 };
 
 type TKeysWithValueUndefined<T> = {

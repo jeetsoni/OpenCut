@@ -2,6 +2,7 @@
 
 import { Button } from "./ui/button";
 import { useTheme } from "next-themes";
+import { useState, useEffect } from "react";
 import { cn } from "@/utils/ui";
 import { Sun03Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -17,7 +18,10 @@ export function ThemeToggle({
 	iconClassName,
 	onToggle,
 }: ThemeToggleProps) {
-	const { theme, setTheme } = useTheme();
+	const { resolvedTheme, setTheme } = useTheme();
+	const [mounted, setMounted] = useState(false);
+
+	useEffect(() => setMounted(true), []);
 
 	return (
 		<Button
@@ -25,7 +29,7 @@ export function ThemeToggle({
 			variant="ghost"
 			className={cn("size-8", className)}
 			onClick={(e) => {
-				setTheme(theme === "dark" ? "light" : "dark");
+				setTheme(resolvedTheme === "dark" ? "light" : "dark");
 				onToggle?.(e);
 			}}
 		>
@@ -33,7 +37,7 @@ export function ThemeToggle({
 				icon={Sun03Icon}
 				className={cn("!size-[1.1rem]", iconClassName)}
 			/>
-			<span className="sr-only">{theme === "dark" ? "Light" : "Dark"}</span>
+			<span className="sr-only">{mounted ? (resolvedTheme === "dark" ? "Light" : "Dark") : "Toggle theme"}</span>
 		</Button>
 	);
 }

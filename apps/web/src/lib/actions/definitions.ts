@@ -178,8 +178,16 @@ export const ACTIONS = {
 		description: "AI-generate Remotion animation code for a specific scene",
 		category: "editing",
 	},
+	"tweak-scene-animation": {
+		description: "AI-tweak existing animation code for a scene based on user instructions",
+		category: "editing",
+	},
 	"generate-animations": {
 		description: "AI-generate Remotion animation code from scene plan",
+		category: "editing",
+	},
+	"bake-animation": {
+		description: "Render animations to MP4 on the server for fast export",
 		category: "editing",
 	},
 } as const satisfies Record<string, TActionDefinition>;

@@ -7,7 +7,7 @@ import { buildScene } from "@/services/renderer/scene-builder";
 import { createTimelineAudioBuffer } from "@/lib/media/audio";
 import { formatTimeCode, getLastFrameTime } from "@/lib/time";
 import { downloadBlob } from "@/utils/browser";
-import { compileExportScenes, AnimationFrameRenderer } from "@/services/renderer/animation-frame-renderer";
+import type { AnimationFrameRenderer } from "@/services/renderer/animation-frame-renderer";
 import { usePreviewStore } from "@/stores/preview-store";
 
 export class RendererManager {
@@ -139,10 +139,12 @@ export class RendererManager {
 			const animationsEnabled = usePreviewStore.getState().overlays.animations;
 			if (animationsEnabled) {
 				try {
+					const { compileExportScenes, AnimationFrameRenderer: AnimFrameRenderer } =
+						await import("@/services/renderer/animation-frame-renderer");
 					const projectId = activeProject.metadata.id;
 					const compiledScenes = await compileExportScenes({ projectId });
 					if (compiledScenes.length > 0) {
-						animationRenderer = new AnimationFrameRenderer({
+						animationRenderer = new AnimFrameRenderer({
 							scenes: compiledScenes,
 							fps: exportFps,
 						});

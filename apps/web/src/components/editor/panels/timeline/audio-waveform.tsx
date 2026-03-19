@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import WaveSurfer from "wavesurfer.js";
+import type WaveSurferType from "wavesurfer.js";
 
 interface AudioWaveformProps {
 	audioUrl?: string;
@@ -46,7 +46,7 @@ export function AudioWaveform({
 	className = "",
 }: AudioWaveformProps) {
 	const waveformRef = useRef<HTMLDivElement>(null);
-	const wavesurfer = useRef<WaveSurfer | null>(null);
+	const wavesurfer = useRef<WaveSurferType | null>(null);
 	const [isLoading, setIsLoading] = useState(true);
 	const [error, setError] = useState(false);
 
@@ -58,6 +58,10 @@ export function AudioWaveform({
 			if (!waveformRef.current || (!audioUrl && !audioBuffer)) return;
 
 			try {
+				const { default: WaveSurfer } = await import("wavesurfer.js");
+
+				if (!mounted) return;
+
 				if (ws) {
 					wavesurfer.current = null;
 				}
