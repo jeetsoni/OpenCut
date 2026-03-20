@@ -15,7 +15,7 @@ const EXPORT_SAMPLE_RATE = 44100;
 
 export type CollectedAudioElement = Omit<
 	AudioElement,
-	"type" | "mediaId" | "volume" | "id" | "name" | "sourceType" | "sourceUrl"
+	"type" | "mediaId" | "id" | "name" | "sourceType" | "sourceUrl"
 > & { buffer: AudioBuffer };
 
 export function createAudioContext({ sampleRate }: { sampleRate?: number } = {}): AudioContext {
@@ -95,6 +95,7 @@ export async function collectAudioElements({
 							trimStart: element.trimStart,
 							trimEnd: element.trimEnd,
 							muted: element.muted || isTrackMuted,
+							volume: element.volume ?? 1,
 						};
 					}),
 				);
@@ -119,6 +120,7 @@ export async function collectAudioElements({
 							trimStart: element.trimStart,
 							trimEnd: element.trimEnd,
 							muted: elementMuted || isTrackMuted,
+							volume: 1,
 						};
 					}),
 				);
@@ -556,7 +558,7 @@ function mixAudioChannels({
 	outputLength: number;
 	sampleRate: number;
 }): void {
-	const { buffer, startTime, trimStart, duration: elementDuration } = element;
+	const { buffer, startTime, trimStart, duration: elementDuration, volume = 1 } = element;
 
 	const sourceStartSample = Math.floor(trimStart * buffer.sampleRate);
 	const sourceLengthSamples = Math.floor(elementDuration * buffer.sampleRate);
@@ -578,7 +580,7 @@ function mixAudioChannels({
 			const sourceIndex = sourceStartSample + Math.floor(i / resampleRatio);
 			if (sourceIndex >= sourceData.length) break;
 
-			outputData[outputIndex] += sourceData[sourceIndex];
+			outputData[outputIndex] += sourceData[sourceIndex] * volume;
 		}
 	}
 }

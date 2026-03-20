@@ -46,7 +46,6 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 	private quality: ExportQuality;
 	private shouldIncludeAudio: boolean;
 	private audioBuffer?: AudioBuffer;
-	private _baseSnapshotCanvas?: HTMLCanvasElement;
 
 	private isCancelled = false;
 
@@ -78,10 +77,8 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 
 	async export({
 		rootNode,
-		animationRenderer,
 	}: {
 		rootNode: RootNode;
-		animationRenderer?: { renderFrame: (params: { time: number; ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D; canvasWidth: number; canvasHeight: number; baseCanvas?: HTMLCanvasElement | OffscreenCanvas }) => Promise<boolean> };
 	}): Promise<ArrayBuffer | null> {
 		const { fps } = this.renderer;
 		const frameCount = Math.ceil(rootNode.duration * fps);
@@ -139,33 +136,6 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 
 			const time = i / fps;
 			await this.renderer.render({ node: rootNode, time });
-
-			// Composite animation overlay on top if available
-			if (animationRenderer) {
-				try {
-					// Reuse a single snapshot canvas instead of allocating per frame
-					if (!this._baseSnapshotCanvas) {
-						this._baseSnapshotCanvas = document.createElement("canvas");
-						this._baseSnapshotCanvas.width = this.renderer.width;
-						this._baseSnapshotCanvas.height = this.renderer.height;
-					}
-					const snapCtx = this._baseSnapshotCanvas.getContext("2d");
-					if (snapCtx) {
-						snapCtx.drawImage(this.renderer.canvas, 0, 0);
-					}
-
-					const ctx = this.renderer.context;
-					await animationRenderer.renderFrame({
-						time,
-						ctx,
-						canvasWidth: this.renderer.width,
-						canvasHeight: this.renderer.height,
-						baseCanvas: this._baseSnapshotCanvas,
-					});
-				} catch (err) {
-					console.warn("[Export] Animation frame failed at", time, err);
-				}
-			}
 
 			await videoSource.add(time, 1 / fps);
 
