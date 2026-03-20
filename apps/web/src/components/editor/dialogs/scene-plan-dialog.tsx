@@ -23,7 +23,10 @@ import { getSceneRemotionCode } from "@/lib/remotion-renderer/scene-code-store";
 import type { SceneBoundaries, SceneBoundary } from "@/lib/scene-planner/boundaries";
 import type { PlannedScene } from "@/lib/scene-planner/schema";
 import { invokeAction } from "@/lib/actions";
-import { Sparkles, ChevronDown, ChevronRight, Play, Pencil, Check, X } from "lucide-react";
+import { Sparkles, ChevronDown, ChevronRight, Play, Pencil, Check, X, Music } from "lucide-react";
+import { applyAutoSfx, collectSfxHints } from "@/lib/scene-planner/auto-sfx";
+import { EditorCore } from "@/core";
+import { toast } from "sonner";
 
 const SCENE_TYPE_COLORS: Record<string, string> = {
 	Hook: "#F55B5B",
@@ -127,6 +130,34 @@ export function ScenePlanDialog({
 		invokeAction("generate-scene-animation", { sceneId });
 	};
 
+	const handleApplySfx = async (sceneId: number) => {
+		const direction = sceneDirections[sceneId];
+		if (!direction) return;
+
+		const hints = collectSfxHints(direction);
+		if (hints.length === 0) {
+			toast.info("No SFX hints found in this scene's animation direction.");
+			return;
+		}
+
+		const toastId = `sfx-${sceneId}`;
+		toast.loading(`Adding ${hints.length} SFX clip${hints.length > 1 ? "s" : ""}…`, { id: toastId });
+
+		const coreEditor = EditorCore.getInstance();
+		const results = await applyAutoSfx({ direction, editor: coreEditor });
+
+		const succeeded = results.filter((r) => r.success).length;
+		const failed = results.filter((r) => !r.success).length;
+
+		if (succeeded > 0 && failed === 0) {
+			toast.success(`Added ${succeeded} SFX clip${succeeded > 1 ? "s" : ""} to timeline`, { id: toastId });
+		} else if (succeeded > 0) {
+			toast.success(`Added ${succeeded} SFX clip${succeeded > 1 ? "s" : ""} (${failed} failed)`, { id: toastId });
+		} else {
+			toast.error("Failed to add SFX clips", { id: toastId });
+		}
+	};
+
 	const handleSeekToScene = (boundary: SceneBoundary) => {
 		editor.playback.seek({ time: boundary.startTime });
 	};
@@ -186,6 +217,7 @@ export function ScenePlanDialog({
 										onSeek={() => handleSeekToScene(boundary)}
 										onGenerateDirection={() => handleGenerateDirection(boundary.id)}
 										onGenerateAnimation={() => handleGenerateAnimation(boundary.id)}
+										onApplySfx={() => handleApplySfx(boundary.id)}
 										onUpdateBoundary={(updates) =>
 											handleUpdateBoundary(boundary.id, updates)
 										}
@@ -229,6 +261,7 @@ function SceneBoundaryCard({
 	onSeek,
 	onGenerateDirection,
 	onGenerateAnimation,
+	onApplySfx,
 	onUpdateBoundary,
 }: {
 	boundary: SceneBoundary;
@@ -239,12 +272,27 @@ function SceneBoundaryCard({
 	onSeek: () => void;
 	onGenerateDirection: () => void;
 	onGenerateAnimation: () => void;
+	onApplySfx: () => Promise<void>;
 	onUpdateBoundary: (updates: Partial<Pick<SceneBoundary, "startTime" | "endTime" | "name">>) => void;
 }) {
 	const accentColor = SCENE_TYPE_COLORS[boundary.type] || "#5BB8F5";
 	const [isEditingTime, setIsEditingTime] = useState(false);
 	const [editStart, setEditStart] = useState(boundary.startTime.toFixed(2));
 	const [editEnd, setEditEnd] = useState(boundary.endTime.toFixed(2));
+	const [isApplyingSfx, setIsApplyingSfx] = useState(false);
+
+	const hasSfxHints =
+		direction != null &&
+		direction.animationDirection.beats.some((b) => b.sfx.length > 0);
+
+	const handleApplySfxClick = async () => {
+		setIsApplyingSfx(true);
+		try {
+			await onApplySfx();
+		} finally {
+			setIsApplyingSfx(false);
+		}
+	};
 
 	const handleSaveTime = () => {
 		const newStart = Number.parseFloat(editStart);
@@ -346,7 +394,7 @@ function SceneBoundaryCard({
 					</p>
 
 					{/* Action buttons */}
-					<div className="flex items-center gap-2">
+					<div className="flex flex-wrap items-center gap-2">
 						{!status?.hasDirection ? (
 							<Button size="sm" variant="outline" onClick={onGenerateDirection}>
 								<Sparkles size={14} className="mr-1.5" />
@@ -369,6 +417,18 @@ function SceneBoundaryCard({
 								) : (
 									<Button size="sm" variant="outline" onClick={onGenerateAnimation}>
 										Regenerate Animation
+									</Button>
+								)}
+
+								{hasSfxHints && (
+									<Button
+										size="sm"
+										variant="outline"
+										onClick={handleApplySfxClick}
+										disabled={isApplyingSfx}
+									>
+										<Music size={14} className="mr-1.5" />
+										{isApplyingSfx ? "Adding SFX…" : "Add SFX"}
 									</Button>
 								)}
 							</>
@@ -396,6 +456,18 @@ function SceneBoundaryCard({
 										{beat.visual.slice(0, 200)}
 										{beat.visual.length > 200 ? "..." : ""}
 									</p>
+									{beat.sfx.length > 0 && (
+										<div className="flex flex-wrap gap-1 pt-0.5">
+											{beat.sfx.map((sfx) => (
+												<span
+													key={sfx}
+													className="text-muted-foreground/70 bg-muted/50 rounded px-1.5 py-0.5 font-mono text-[10px]"
+												>
+													{sfx}
+												</span>
+											))}
+										</div>
+									)}
 								</div>
 							))}
 						</div>
