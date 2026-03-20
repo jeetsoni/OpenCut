@@ -1,6 +1,7 @@
 "use client";
 
 import { useEditor } from "@/hooks/use-editor";
+import { usePlaybackTime } from "@/hooks/use-playback-time";
 import { formatTimeCode } from "@/lib/time";
 import { invokeAction } from "@/lib/actions";
 import { EditableTimecode } from "@/components/editable-timecode";
@@ -25,7 +26,7 @@ export function PreviewToolbar({
 }) {
 	const editor = useEditor();
 	const isPlaying = editor.playback.getIsPlaying();
-	const currentTime = editor.playback.getCurrentTime();
+	const currentTime = usePlaybackTime();
 	const totalDuration = editor.timeline.getTotalDuration();
 	const fps = editor.project.getActive().settings.fps;
 	const { overlays, toggleOverlayVisibility } = usePreviewStore();

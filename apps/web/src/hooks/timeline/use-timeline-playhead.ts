@@ -2,6 +2,7 @@ import { getSnappedSeekTime } from "@/lib/time";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useEdgeAutoScroll } from "@/hooks/timeline/use-edge-auto-scroll";
 import { useEditor } from "../use-editor";
+import { usePlaybackTime } from "@/hooks/use-playback-time";
 import { useShiftKey } from "@/hooks/use-shift-key";
 import {
 	findSnapPoints,
@@ -26,7 +27,7 @@ export function useTimelinePlayhead({
 }: UseTimelinePlayheadProps) {
 	const editor = useEditor();
 	const activeProject = editor.project.getActive();
-	const currentTime = editor.playback.getCurrentTime();
+	const currentTime = usePlaybackTime();
 	const duration = editor.timeline.getTotalDuration();
 	const isPlaying = editor.playback.getIsPlaying();
 	const isScrubbing = editor.playback.getIsScrubbing();

@@ -8,6 +8,7 @@ export class PlaybackManager {
 	private previousVolume = 1;
 	private isScrubbing = false;
 	private listeners = new Set<() => void>();
+	private timeListeners = new Set<() => void>();
 	private playbackTimer: number | null = null;
 	private lastUpdate = 0;
 
@@ -44,7 +45,7 @@ export class PlaybackManager {
 	seek({ time }: { time: number }): void {
 		const duration = this.editor.timeline.getTotalDuration();
 		this.currentTime = Math.max(0, Math.min(duration, time));
-		this.notify();
+		this.notifyTime();
 
 		window.dispatchEvent(
 			new CustomEvent("playback-seek", {
@@ -116,8 +117,18 @@ export class PlaybackManager {
 		return () => this.listeners.delete(listener);
 	}
 
+	subscribeToTime(listener: () => void): () => void {
+		this.timeListeners.add(listener);
+		return () => this.timeListeners.delete(listener);
+	}
+
 	private notify(): void {
 		this.listeners.forEach((fn) => fn());
+		this.timeListeners.forEach((fn) => fn());
+	}
+
+	private notifyTime(): void {
+		this.timeListeners.forEach((fn) => fn());
 	}
 
 	private startTimer(): void {
@@ -149,7 +160,7 @@ export class PlaybackManager {
 		if (duration > 0 && newTime >= duration) {
 			this.pause();
 			this.currentTime = duration;
-			this.notify();
+			this.notifyTime();
 
 			window.dispatchEvent(
 				new CustomEvent("playback-seek", {
@@ -158,7 +169,7 @@ export class PlaybackManager {
 			);
 		} else {
 			this.currentTime = newTime;
-			this.notify();
+			this.notifyTime();
 
 			window.dispatchEvent(
 				new CustomEvent("playback-update", {

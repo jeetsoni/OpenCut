@@ -8,37 +8,6 @@ interface AudioWaveformProps {
 	className?: string;
 }
 
-function extractPeaks({
-	buffer,
-	length = 512,
-}: {
-	buffer: AudioBuffer;
-	length?: number;
-}): number[][] {
-	const channels = buffer.numberOfChannels;
-	const peaks: number[][] = [];
-
-	for (let c = 0; c < channels; c++) {
-		const data = buffer.getChannelData(c);
-		const step = Math.floor(data.length / length);
-		const channelPeaks: number[] = [];
-
-		for (let i = 0; i < length; i++) {
-			const start = i * step;
-			const end = Math.min(start + step, data.length);
-			let max = 0;
-			for (let j = start; j < end; j++) {
-				const abs = Math.abs(data[j]);
-				if (abs > max) max = abs;
-			}
-			channelPeaks.push(max);
-		}
-		peaks.push(channelPeaks);
-	}
-
-	return peaks;
-}
-
 export function AudioWaveform({
 	audioUrl,
 	audioBuffer,
@@ -103,8 +72,9 @@ export function AudioWaveform({
 				});
 
 				if (audioBuffer) {
-					const peaks = extractPeaks({ buffer: audioBuffer });
-					newWaveSurfer.load("", peaks, audioBuffer.duration);
+					// Use loadDecodedBuffer when an AudioBuffer is provided directly —
+					// passing an empty URL to load() causes a failed fetch and fires an error.
+					newWaveSurfer.loadDecodedBuffer(audioBuffer);
 				} else if (audioUrl) {
 					await newWaveSurfer.load(audioUrl);
 				}

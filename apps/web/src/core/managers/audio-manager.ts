@@ -1,44 +1,53 @@
 import type { EditorCore } from "@/core";
-import type { AudioClipSource } from "@/lib/media/audio";
-import { createAudioContext, collectAudioClips } from "@/lib/media/audio";
+import type { TimelineTrack } from "@/types/timeline";
+import type { MediaAsset } from "@/types/assets";
+import { createAudioContext } from "@/lib/media/audio";
+import { canTracktHaveAudio } from "@/lib/timeline";
+import { canElementHaveAudio } from "@/lib/timeline/element-utils";
+import { mediaSupportsAudio } from "@/lib/media/media-utils";
 import {
-	ALL_FORMATS,
-	AudioBufferSink,
-	BlobSource,
 	Input,
-	type WrappedAudioBuffer,
+	ALL_FORMATS,
+	BlobSource,
+	AudioBufferSink,
 } from "mediabunny";
+
+interface ScheduledClip {
+	node: AudioBufferSourceNode;
+	gain: GainNode;
+}
+
+interface AudioClip {
+	/** Unique key for buffer caching (mediaAsset.id or element.id for library audio) */
+	cacheKey: string;
+	file: File | null;
+	/** For library audio fetched via URL */
+	sourceUrl?: string;
+	startTime: number;
+	duration: number;
+	trimStart: number;
+	muted: boolean;
+	volume: number;
+}
 
 export class AudioManager {
 	private audioContext: AudioContext | null = null;
 	private masterGain: GainNode | null = null;
-	private playbackStartTime = 0;
-	private playbackStartContextTime = 0;
-	private scheduleTimer: number | null = null;
-	private lookaheadSeconds = 2;
-	private scheduleIntervalMs = 500;
-	private clips: AudioClipSource[] = [];
-	private sinks = new Map<string, AudioBufferSink>();
-	private inputs = new Map<string, Input>();
-	private activeClipIds = new Set<string>();
-	private clipIterators = new Map<
-		string,
-		AsyncGenerator<WrappedAudioBuffer, void, unknown>
-	>();
-	private queuedSources = new Set<AudioBufferSourceNode>();
+	private scheduledClips: ScheduledClip[] = [];
 	private playbackSessionId = 0;
 	private lastIsPlaying = false;
 	private lastVolume = 1;
-	private playbackLatencyCompensationSeconds = 0;
 	private unsubscribers: Array<() => void> = [];
+	/** Decoded AudioBuffers cached by cacheKey — avoids re-decoding on seek/replay. */
+	private bufferCache = new Map<string, AudioBuffer>();
 
 	constructor(private editor: EditorCore) {
 		this.lastVolume = this.editor.playback.getVolume();
 
 		this.unsubscribers.push(
 			this.editor.playback.subscribe(this.handlePlaybackChange),
-			this.editor.timeline.subscribe(this.handleTimelineChange),
-			this.editor.media.subscribe(this.handleTimelineChange),
+			this.editor.timeline.subscribe(this.handleStructuralChange),
+			this.editor.media.subscribe(this.handleStructuralChange),
 		);
 		if (typeof window !== "undefined") {
 			window.addEventListener("playback-seek", this.handleSeek);
@@ -46,7 +55,7 @@ export class AudioManager {
 	}
 
 	dispose(): void {
-		this.stopPlayback();
+		this.stopAllNodes();
 		for (const unsub of this.unsubscribers) {
 			unsub();
 		}
@@ -54,7 +63,7 @@ export class AudioManager {
 		if (typeof window !== "undefined") {
 			window.removeEventListener("playback-seek", this.handleSeek);
 		}
-		this.disposeSinks();
+		this.bufferCache.clear();
 		if (this.audioContext) {
 			void this.audioContext.close();
 			this.audioContext = null;
@@ -78,7 +87,7 @@ export class AudioManager {
 					time: this.editor.playback.getCurrentTime(),
 				});
 			} else {
-				this.stopPlayback();
+				this.stopAllNodes();
 			}
 		}
 	};
@@ -88,7 +97,7 @@ export class AudioManager {
 		if (!detail) return;
 
 		if (this.editor.playback.getIsScrubbing()) {
-			this.stopPlayback();
+			this.stopAllNodes();
 			return;
 		}
 
@@ -97,14 +106,15 @@ export class AudioManager {
 			return;
 		}
 
-		this.stopPlayback();
+		this.stopAllNodes();
 	};
 
-	private handleTimelineChange = (): void => {
-		this.disposeSinks();
+	private handleStructuralChange = (): void => {
+		// Clear the buffer cache when the timeline or media changes so that
+		// any replaced or updated clips get re-decoded next play.
+		this.bufferCache.clear();
 
 		if (!this.editor.playback.getIsPlaying()) return;
-
 		void this.startPlayback({ time: this.editor.playback.getCurrentTime() });
 	};
 
@@ -124,276 +134,259 @@ export class AudioManager {
 		this.masterGain.gain.value = this.lastVolume;
 	}
 
-	private getPlaybackTime(): number {
-		if (!this.audioContext) return this.playbackStartTime;
-		const elapsed =
-			this.audioContext.currentTime - this.playbackStartContextTime;
-		return this.playbackStartTime + elapsed;
+	private stopAllNodes(): void {
+		this.playbackSessionId++;
+		for (const { node, gain } of this.scheduledClips) {
+			try {
+				node.stop();
+			} catch {}
+			node.disconnect();
+			gain.disconnect();
+		}
+		this.scheduledClips = [];
 	}
+
+	// ---------------------------------------------------------------------------
+	// Collect AudioClip descriptors from the current timeline state
+	// ---------------------------------------------------------------------------
+
+	private collectClips(): AudioClip[] {
+		const tracks = this.editor.timeline.getTracks();
+		const mediaAssets = this.editor.media.getAssets();
+		const mediaMap = new Map<string, MediaAsset>(
+			mediaAssets.map((a) => [a.id, a]),
+		);
+		const clips: AudioClip[] = [];
+
+		for (const track of tracks) {
+			const isTrackMuted = canTracktHaveAudio(track) && track.muted;
+
+			for (const element of track.elements) {
+				if (!canElementHaveAudio(element)) continue;
+				if (element.duration <= 0) continue;
+
+				const isElementMuted = "muted" in element ? (element.muted ?? false) : false;
+				const muted = isTrackMuted || isElementMuted;
+
+				if (element.type === "audio") {
+					if (element.sourceType === "upload") {
+						const asset = mediaMap.get(element.mediaId);
+						if (!asset) continue;
+						clips.push({
+							cacheKey: asset.id,
+							file: asset.file,
+							startTime: element.startTime,
+							duration: element.duration,
+							trimStart: element.trimStart,
+							muted,
+							volume: element.volume ?? 1,
+						});
+					} else {
+						// Library audio — fetch from URL
+						clips.push({
+							cacheKey: element.id,
+							file: null,
+							sourceUrl: element.sourceUrl,
+							startTime: element.startTime,
+							duration: element.duration,
+							trimStart: element.trimStart,
+							muted,
+							volume: element.volume ?? 1,
+						});
+					}
+					continue;
+				}
+
+				if (element.type === "video") {
+					const asset = mediaMap.get(element.mediaId);
+					if (!asset || !mediaSupportsAudio({ media: asset })) continue;
+					clips.push({
+						cacheKey: asset.id,
+						file: asset.file,
+						startTime: element.startTime,
+						duration: element.duration,
+						trimStart: element.trimStart,
+						muted,
+						volume: 1,
+					});
+				}
+			}
+		}
+
+		return clips;
+	}
+
+	// ---------------------------------------------------------------------------
+	// Decode a single clip's file to an AudioBuffer (with caching)
+	// ---------------------------------------------------------------------------
+
+	private async decodeClip(
+		clip: AudioClip,
+		audioContext: AudioContext,
+	): Promise<AudioBuffer | null> {
+		const cached = this.bufferCache.get(clip.cacheKey);
+		if (cached) return cached;
+
+		try {
+			let buffer: AudioBuffer | null = null;
+
+			if (clip.file) {
+				// Primary path: Web Audio API decodeAudioData.
+				// Works for most audio files and for video containers on modern browsers.
+				try {
+					const arrayBuffer = await clip.file.arrayBuffer();
+					buffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+				} catch {
+					// Fallback: use mediabunny to demux and decode (e.g. for some MP4 files
+					// whose audio track can't be decoded by decodeAudioData directly).
+					buffer = await this.decodeViaMediabunny(clip.file, audioContext);
+				}
+			} else if (clip.sourceUrl) {
+				// Library audio: fetch then decode
+				const response = await fetch(clip.sourceUrl);
+				if (!response.ok) return null;
+				const arrayBuffer = await response.arrayBuffer();
+				buffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+			}
+
+			if (buffer) {
+				this.bufferCache.set(clip.cacheKey, buffer);
+			}
+			return buffer;
+		} catch (err) {
+			console.warn("[AudioManager] Failed to decode clip:", clip.cacheKey, err);
+			return null;
+		}
+	}
+
+	private async decodeViaMediabunny(
+		file: File,
+		audioContext: AudioContext,
+	): Promise<AudioBuffer | null> {
+		const MAX_CHANNELS = 2;
+		const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
+
+		try {
+			const audioTrack = await input.getPrimaryAudioTrack();
+			if (!audioTrack) return null;
+
+			const sink = new AudioBufferSink(audioTrack);
+			const chunks: AudioBuffer[] = [];
+			let totalSamples = 0;
+
+			for await (const { buffer } of sink.buffers(0)) {
+				chunks.push(buffer);
+				totalSamples += buffer.length;
+			}
+
+			if (chunks.length === 0) return null;
+
+			const nativeSampleRate = chunks[0].sampleRate;
+			const numChannels = Math.min(MAX_CHANNELS, chunks[0].numberOfChannels);
+			const targetSampleRate = audioContext.sampleRate;
+
+			// Stitch chunks into one contiguous buffer
+			const nativeChannels = Array.from(
+				{ length: numChannels },
+				() => new Float32Array(totalSamples),
+			);
+			let offset = 0;
+			for (const chunk of chunks) {
+				for (let ch = 0; ch < numChannels; ch++) {
+					const src = chunk.getChannelData(Math.min(ch, chunk.numberOfChannels - 1));
+					nativeChannels[ch].set(src, offset);
+				}
+				offset += chunk.length;
+			}
+
+			// Resample to the AudioContext's sample rate via OfflineAudioContext
+			const outputSamples = Math.ceil(totalSamples * (targetSampleRate / nativeSampleRate));
+			const offline = new OfflineAudioContext(numChannels, outputSamples, targetSampleRate);
+			const nativeBuffer = audioContext.createBuffer(numChannels, totalSamples, nativeSampleRate);
+			for (let ch = 0; ch < numChannels; ch++) {
+				nativeBuffer.copyToChannel(nativeChannels[ch], ch);
+			}
+			const src = offline.createBufferSource();
+			src.buffer = nativeBuffer;
+			src.connect(offline.destination);
+			src.start(0);
+			return await offline.startRendering();
+		} catch (err) {
+			console.warn("[AudioManager] mediabunny decode failed:", err);
+			return null;
+		} finally {
+			input.dispose();
+		}
+	}
+
+	// ---------------------------------------------------------------------------
+	// Main playback scheduling
+	// ---------------------------------------------------------------------------
 
 	private async startPlayback({ time }: { time: number }): Promise<void> {
 		const audioContext = this.ensureAudioContext();
 		if (!audioContext) return;
 
-		this.stopPlayback();
-		this.playbackSessionId++;
-		this.playbackLatencyCompensationSeconds = 0;
+		this.stopAllNodes();
+		const sessionId = this.playbackSessionId;
 
-		const tracks = this.editor.timeline.getTracks();
-		const mediaAssets = this.editor.media.getAssets();
 		const duration = this.editor.timeline.getTotalDuration();
-
 		if (duration <= 0) return;
 
 		if (audioContext.state === "suspended") {
 			await audioContext.resume();
 		}
 
-		this.clips = await collectAudioClips({ tracks, mediaAssets });
+		const clips = this.collectClips();
+
+		// Decode all clips in parallel. Cached clips return immediately;
+		// uncached ones decode once and are stored for future seeks/plays.
+		const decoded = await Promise.all(
+			clips.map(async (clip) => {
+				const buffer = await this.decodeClip(clip, audioContext);
+				return buffer ? { clip, buffer } : null;
+			}),
+		);
+
+		// Bail if play was stopped or a newer startPlayback call took over.
+		if (sessionId !== this.playbackSessionId) return;
 		if (!this.editor.playback.getIsPlaying()) return;
 
-		this.playbackStartTime = time;
-		this.playbackStartContextTime = audioContext.currentTime;
+		const contextNow = audioContext.currentTime;
 
-		this.scheduleUpcomingClips();
-
-		if (typeof window !== "undefined") {
-			this.scheduleTimer = window.setInterval(() => {
-				this.scheduleUpcomingClips();
-			}, this.scheduleIntervalMs);
-		}
-	}
-
-	private scheduleUpcomingClips(): void {
-		if (!this.editor.playback.getIsPlaying()) return;
-
-		const currentTime = this.getPlaybackTime();
-		const windowEnd = currentTime + this.lookaheadSeconds;
-
-		for (const clip of this.clips) {
+		for (const item of decoded) {
+			if (!item) continue;
+			const { clip, buffer } = item;
 			if (clip.muted) continue;
-			if (this.activeClipIds.has(clip.id)) continue;
 
 			const clipEnd = clip.startTime + clip.duration;
-			if (clipEnd <= currentTime) continue;
-			if (clip.startTime > windowEnd) continue;
+			if (clipEnd <= time) continue; // entirely in the past
 
-			this.activeClipIds.add(clip.id);
-			void this.runClipIterator({
-				clip,
-				startTime: currentTime,
-				sessionId: this.playbackSessionId,
-			});
-		}
-	}
+			const playbackOffset = Math.max(0, time - clip.startTime);
+			const bufferOffset = clip.trimStart + playbackOffset;
+			const remainingDuration = clip.duration - playbackOffset;
+			if (remainingDuration <= 0) continue;
 
-	private stopPlayback(): void {
-		if (this.scheduleTimer && typeof window !== "undefined") {
-			window.clearInterval(this.scheduleTimer);
-		}
-		this.scheduleTimer = null;
+			// If the clip hasn't started yet, schedule it in the future.
+			const startDelay = Math.max(0, clip.startTime - time);
+			const whenToStart = contextNow + startDelay;
 
-		for (const iterator of this.clipIterators.values()) {
-			void iterator.return();
-		}
-		this.clipIterators.clear();
-		this.activeClipIds.clear();
-
-		for (const source of this.queuedSources) {
-			try {
-				source.stop();
-			} catch {}
-			source.disconnect();
-		}
-		this.queuedSources.clear();
-	}
-
-	private async runClipIterator({
-		clip,
-		startTime,
-		sessionId,
-	}: {
-		clip: AudioClipSource;
-		startTime: number;
-		sessionId: number;
-	}): Promise<void> {
-		const audioContext = this.ensureAudioContext();
-		if (!audioContext) return;
-
-		const sink = await this.getAudioSink({ clip });
-		if (!sink || !this.editor.playback.getIsPlaying()) return;
-		if (sessionId !== this.playbackSessionId) return;
-
-		const clipStart = clip.startTime;
-		const clipEnd = clip.startTime + clip.duration;
-		const playbackTimeAfterSinkReady = this.getPlaybackTime();
-		const iteratorStartTime = Math.max(
-			startTime,
-			clipStart,
-			playbackTimeAfterSinkReady,
-		);
-		if (iteratorStartTime >= clipEnd) {
-			return;
-		}
-		const sourceStartTime =
-			clip.trimStart + (iteratorStartTime - clip.startTime);
-
-		const iterator = sink.buffers(sourceStartTime);
-		this.clipIterators.set(clip.id, iterator);
-		let consecutiveDroppedBufferCount = 0;
-
-		// Per-clip gain node for volume control
-		const clipGain = audioContext.createGain();
-		clipGain.gain.value = clip.volume;
-		clipGain.connect(this.masterGain ?? audioContext.destination);
-
-		try {
-		for await (const { buffer, timestamp } of iterator) {
-			if (!this.editor.playback.getIsPlaying()) return;
-			if (sessionId !== this.playbackSessionId) return;
-
-			const timelineTime = clip.startTime + (timestamp - clip.trimStart);
-			if (timelineTime >= clipEnd) break;
+			const gain = audioContext.createGain();
+			gain.gain.value = clip.volume;
+			gain.connect(this.masterGain ?? audioContext.destination);
 
 			const node = audioContext.createBufferSource();
 			node.buffer = buffer;
-			node.connect(clipGain);
+			node.connect(gain);
+			node.start(whenToStart, bufferOffset, remainingDuration);
 
-			const startTimestamp =
-				this.playbackStartContextTime +
-				this.playbackLatencyCompensationSeconds +
-				(timelineTime - this.playbackStartTime);
+			this.scheduledClips.push({ node, gain });
 
-			if (startTimestamp >= audioContext.currentTime) {
-				node.start(startTimestamp);
-				consecutiveDroppedBufferCount = 0;
-			} else {
-				const offset = audioContext.currentTime - startTimestamp;
-				if (offset < buffer.duration) {
-					node.start(audioContext.currentTime, offset);
-					consecutiveDroppedBufferCount = 0;
-				} else {
-					consecutiveDroppedBufferCount += 1;
-					if (consecutiveDroppedBufferCount >= 5) {
-						const nextCompensationSeconds = Math.max(
-							this.playbackLatencyCompensationSeconds,
-							Math.min(0.25, offset + 0.01),
-						);
-						if (
-							nextCompensationSeconds >
-							this.playbackLatencyCompensationSeconds + 0.001
-						) {
-							this.playbackLatencyCompensationSeconds =
-								nextCompensationSeconds;
-						}
-						const resyncStartTime = this.getPlaybackTime();
-						this.clipIterators.delete(clip.id);
-						void this.runClipIterator({
-							clip,
-							startTime: resyncStartTime,
-							sessionId,
-						});
-						return;
-					}
-					continue;
-				}
-			}
-
-			this.queuedSources.add(node);
 			node.addEventListener("ended", () => {
 				node.disconnect();
-				this.queuedSources.delete(node);
+				gain.disconnect();
+				this.scheduledClips = this.scheduledClips.filter((s) => s.node !== node);
 			});
-
-			const aheadTime = timelineTime - this.getPlaybackTime();
-			if (aheadTime >= 1) {
-				await this.waitUntilCaughtUp({ timelineTime, targetAhead: 1 });
-				if (sessionId !== this.playbackSessionId) return;
-			}
-		}
-		} catch (error) {
-			// Iterator can throw when the underlying decoder/input is disposed
-			// during playback stop or clip changes — safe to ignore.
-			if (
-				error instanceof Error &&
-				(error.name === "InputDisposedError" || error.message === "Input has been disposed.")
-			) {
-				return;
-			}
-			throw error;
-		} finally {
-			clipGain.disconnect();
-		}
-
-		this.clipIterators.delete(clip.id);
-		// don't remove from activeClipIds - prevents scheduler from restarting this clip
-		// the set is cleared on stopPlayback anyway
-	}
-
-	private waitUntilCaughtUp({
-		timelineTime,
-		targetAhead,
-	}: {
-		timelineTime: number;
-		targetAhead: number;
-	}): Promise<void> {
-		return new Promise((resolve) => {
-			const checkInterval = setInterval(() => {
-				if (!this.editor.playback.getIsPlaying()) {
-					clearInterval(checkInterval);
-					resolve();
-					return;
-				}
-
-				const playbackTime = this.getPlaybackTime();
-				if (timelineTime - playbackTime < targetAhead) {
-					clearInterval(checkInterval);
-					resolve();
-				}
-			}, 100);
-		});
-	}
-
-	private disposeSinks(): void {
-		for (const iterator of this.clipIterators.values()) {
-			void iterator.return();
-		}
-		this.clipIterators.clear();
-		this.activeClipIds.clear();
-
-		for (const input of this.inputs.values()) {
-			input.dispose();
-		}
-		this.inputs.clear();
-		this.sinks.clear();
-	}
-
-	private async getAudioSink({
-		clip,
-	}: {
-		clip: AudioClipSource;
-	}): Promise<AudioBufferSink | null> {
-		const existingSink = this.sinks.get(clip.sourceKey);
-		if (existingSink) return existingSink;
-
-		try {
-			const input = new Input({
-				source: new BlobSource(clip.file),
-				formats: ALL_FORMATS,
-			});
-			const audioTrack = await input.getPrimaryAudioTrack();
-			if (!audioTrack) {
-				input.dispose();
-				return null;
-			}
-
-			const sink = new AudioBufferSink(audioTrack);
-			this.inputs.set(clip.sourceKey, input);
-			this.sinks.set(clip.sourceKey, sink);
-			return sink;
-		} catch (error) {
-			console.warn("Failed to initialize audio sink:", error);
-			return null;
 		}
 	}
 }

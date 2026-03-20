@@ -1,4 +1,5 @@
 import { useEditor } from "@/hooks/use-editor";
+import { usePlaybackTime } from "@/hooks/use-playback-time";
 import {
 	TooltipProvider,
 	Tooltip,
@@ -83,7 +84,7 @@ export function TimelineToolbar({
 
 function ToolbarLeftSection() {
 	const editor = useEditor();
-	const currentTime = editor.playback.getCurrentTime();
+	const currentTime = usePlaybackTime();
 	const isCurrentlyBookmarked = editor.scenes.isBookmarked({ time: currentTime });
 	const [transcriptOpen, setTranscriptOpen] = useState(false);
 

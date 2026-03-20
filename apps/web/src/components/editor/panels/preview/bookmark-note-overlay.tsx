@@ -1,12 +1,13 @@
 "use client";
 
 import { useEditor } from "@/hooks/use-editor";
+import { usePlaybackTime } from "@/hooks/use-playback-time";
 import { findCurrentScene } from "@/lib/scenes";
 import { getBookmarksActiveAtTime } from "@/lib/timeline/bookmarks";
 
 export function BookmarkNoteOverlay() {
 	const editor = useEditor();
-	const currentTime = editor.playback.getCurrentTime();
+	const currentTime = usePlaybackTime();
 	const activeProject = editor.project.getActive();
 
 	if (!activeProject) {

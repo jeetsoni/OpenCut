@@ -1,5 +1,6 @@
 import { NumberField } from "@/components/ui/number-field";
 import { useEditor } from "@/hooks/use-editor";
+import { usePlaybackTime } from "@/hooks/use-playback-time";
 import { clamp, isNearlyEqual } from "@/utils/math";
 import type { AnimationPropertyPath } from "@/types/animation";
 import type { VisualElement } from "@/types/timeline";
@@ -64,7 +65,7 @@ export function TransformSection({
 }) {
 	const editor = useEditor();
 	const [isScaleLocked, setIsScaleLocked] = useState(false);
-	const playheadTime = editor.playback.getCurrentTime();
+	const playheadTime = usePlaybackTime();
 	const localTime = getElementLocalTime({
 		timelineTime: playheadTime,
 		elementStartTime: element.startTime,
