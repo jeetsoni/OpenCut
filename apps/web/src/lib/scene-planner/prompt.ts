@@ -145,14 +145,21 @@ BAD visual (just a labeled card — NEVER DO THIS):
 - Idle: Math.sin(frame*0.05)*3 for floating
 
 ### sfx field:
-Available files ONLY:
+Available local SFX files (in /sfx-sound/ folder — use ONLY these):
 - tech_blip.wav — card/element appears, transitions (playbackRate:0.7-1.3)
 - notification_ping.wav — important reveal, key word lands
 - error_buzz.wav — error state, mistake, failure
 - success_chime.wav — positive reveal, completion
 - keyboard.mp3 — typing animation (volume:0.15, playbackRate:1.5-2.0)
 
-Format: "filename.wav at 2.5s (reason)" with optional volume/playbackRate overrides.
+Format: "filename at Xs volume:V playbackRate:R (reason)"
+Examples:
+- "tech_blip.wav at 0.5s volume:0.8 playbackRate:1.0 (card appears)"
+- "keyboard.mp3 at 1.2s volume:0.15 playbackRate:1.8 (typing animation)"
+- "success_chime.wav at 3.0s volume:0.6 playbackRate:1.0 (solution revealed)"
+
+IMPORTANT: Use SFX generously — every visual event should have a matching sound.
+Add at least 1-2 SFX per beat. Sound at every card entry, every transition, every reveal.
 
 ## Attention Engineering
 - Motion every 0.7-1.2 seconds

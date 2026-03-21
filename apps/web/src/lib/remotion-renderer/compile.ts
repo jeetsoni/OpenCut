@@ -15,11 +15,13 @@ import React from "react";
 import {
 	AbsoluteFill,
 	Sequence,
+	Audio,
 	useCurrentFrame,
 	useVideoConfig,
 	interpolate,
 	spring,
 	Easing,
+	staticFile,
 } from "remotion";
 import type { ScenePlan } from "@/lib/scene-planner/schema";
 
@@ -73,6 +75,20 @@ function SequenceShim({
 	);
 }
 
+/**
+ * Audio shim for editor overlay — renders nothing since AudioManager handles playback.
+ */
+function AudioShim() {
+	return null;
+}
+
+/**
+ * staticFile shim for editor overlay — returns the public path directly.
+ */
+function staticFileShim(path: string): string {
+	return `/${path}`;
+}
+
 /** Base scope shared between both compile modes */
 const BASE_SCOPE = {
 	React,
@@ -90,6 +106,8 @@ const BASE_SCOPE = {
 const PLAYER_SCOPE = {
 	...BASE_SCOPE,
 	Sequence,
+	Audio,
+	staticFile,
 	useCurrentFrame,
 	useVideoConfig,
 };
@@ -98,6 +116,8 @@ const PLAYER_SCOPE = {
 const EDITOR_SCOPE = {
 	...BASE_SCOPE,
 	Sequence: SequenceShim,
+	Audio: AudioShim,
+	staticFile: staticFileShim,
 	useCurrentFrame: useEditorFrame,
 	useVideoConfig: useEditorVideoConfig,
 };

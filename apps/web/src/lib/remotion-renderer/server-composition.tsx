@@ -16,11 +16,13 @@ import {
 	AbsoluteFill,
 	Composition,
 	Sequence,
+	Audio,
 	useCurrentFrame,
 	useVideoConfig,
 	interpolate,
 	spring,
 	Easing,
+	staticFile,
 	registerRoot,
 } from "remotion";
 import { transform } from "sucrase";
@@ -67,13 +69,13 @@ function compileCode(code: string): React.FC<{ scene: SceneDirection }> | null {
 
 		const scopeKeys = [
 			"React", "useState", "useEffect", "useMemo", "useCallback",
-			"AbsoluteFill", "Sequence", "useCurrentFrame", "useVideoConfig",
-			"interpolate", "spring", "Easing",
+			"AbsoluteFill", "Sequence", "Audio", "useCurrentFrame", "useVideoConfig",
+			"interpolate", "spring", "Easing", "staticFile",
 		];
 		const scopeValues = [
 			React, React.useState, React.useEffect, React.useMemo, React.useCallback,
-			AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig,
-			interpolate, spring, Easing,
+			AbsoluteFill, Sequence, Audio, useCurrentFrame, useVideoConfig,
+			interpolate, spring, Easing, staticFile,
 		];
 
 		const factory = new Function(

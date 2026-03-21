@@ -14,6 +14,8 @@ export interface SfxHint {
 	absoluteTime: number;
 	/** Original hint string for debugging */
 	raw: string;
+	/** Path to local SFX file if matched, null if needs Freesound search */
+	localPath: string | null;
 }
 
 export interface SfxResult {
@@ -24,17 +26,37 @@ export interface SfxResult {
 }
 
 /**
+ * Known local SFX files in /public/sfx-sound/.
+ * These are used as the primary source before falling back to Freesound search.
+ */
+const LOCAL_SFX_FILES: Record<string, string> = {
+	"tech_blip.wav": "/sfx-sound/tech_blip.wav",
+	"tech_blip": "/sfx-sound/tech_blip.wav",
+	"notification_ping.wav": "/sfx-sound/notification_ping.wav",
+	"notification_ping": "/sfx-sound/notification_ping.wav",
+	"error_buzz.wav": "/sfx-sound/error_buzz.wav",
+	"error_buzz": "/sfx-sound/error_buzz.wav",
+	"success_chime.wav": "/sfx-sound/success_chime.wav",
+	"success_chime": "/sfx-sound/success_chime.wav",
+	"keyboard.mp3": "/sfx-sound/keyboard.mp3",
+	"keyboard": "/sfx-sound/keyboard.mp3",
+};
+
+/**
  * Parses a single SFX hint string from a beat.
- * Expected format: "filename.wav at 2.3s (reason)" or "impact at 0.5s"
+ * Expected format: "filename at 2.3s volume:0.8 playbackRate:1.2 (reason)"
  * The timestamp is relative to the beat's start time.
  */
 function parseSfxHint(hintStr: string, beatStartTime: number): SfxHint | null {
-	const match = hintStr.match(/^(.+?)\s+at\s+([\d.]+)s/i);
+	const match = hintStr.match(/^(\S+)\s+at\s+([\d.]+)s/i);
 	if (!match) return null;
 
 	const rawName = match[1].trim();
 	const localTime = parseFloat(match[2]);
 	if (Number.isNaN(localTime)) return null;
+
+	// Check if this is a known local file first
+	const localPath = LOCAL_SFX_FILES[rawName] || LOCAL_SFX_FILES[rawName.replace(/\.\w+$/, "")];
 
 	// Convert filename to search query: "impact_hit.wav" → "impact hit"
 	const query = rawName
@@ -48,6 +70,7 @@ function parseSfxHint(hintStr: string, beatStartTime: number): SfxHint | null {
 		query,
 		absoluteTime: beatStartTime + localTime,
 		raw: hintStr,
+		localPath: localPath || null,
 	};
 }
 
@@ -131,6 +154,33 @@ export async function applyAutoSfx({
 	const results = await Promise.all(
 		hints.map(async (hint): Promise<SfxResult> => {
 			try {
+				// Try local SFX file first
+				if (hint.localPath) {
+					const decoded = await fetchAndDecode(hint.localPath);
+					if (decoded) {
+						const { buffer, ctx } = decoded;
+						void ctx.close();
+
+						const trackId = getAudioTrackId();
+						const fileName = hint.localPath.split("/").pop() || hint.query;
+						const element = buildLibraryAudioElement({
+							sourceUrl: hint.localPath,
+							name: `SFX: ${fileName}`,
+							duration: buffer.duration,
+							startTime: hint.absoluteTime,
+							buffer,
+						});
+
+						editor.timeline.insertElement({
+							placement: { mode: "explicit", trackId },
+							element,
+						});
+
+						return { hint, success: true, soundName: fileName };
+					}
+				}
+
+				// Fall back to Freesound search
 				const sound = await searchSound(hint.query);
 				if (!sound?.previewUrl) {
 					return { hint, success: false, error: `No sound found for "${hint.query}"` };
