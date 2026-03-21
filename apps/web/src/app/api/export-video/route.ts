@@ -36,7 +36,7 @@ import fs from "node:fs";
 import os from "node:os";
 import { spawn } from "node:child_process";
 
-export const maxDuration = 600; // 10 min for long videos
+export const maxDuration = 900; // 15 min for long videos with many segments
 
 interface AnimationScene {
 	sceneId: number;

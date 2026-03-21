@@ -183,7 +183,7 @@ async function promptGemini({
 			contents: [{ parts: [{ text: prompt }] }],
 			generationConfig: { temperature: 0.1 },
 		}),
-		signal: AbortSignal.timeout(60_000),
+		signal: AbortSignal.timeout(120_000),
 	});
 
 	if (!response.ok) {
@@ -224,7 +224,7 @@ async function promptOpenAICompatible({
 			messages: [{ role: "user", content: prompt }],
 			temperature: 0.1,
 		}),
-		signal: AbortSignal.timeout(60_000),
+		signal: AbortSignal.timeout(120_000),
 	});
 
 	if (!response.ok) {
