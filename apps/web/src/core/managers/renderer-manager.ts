@@ -1,6 +1,9 @@
 import type { EditorCore } from "@/core";
 import type { RootNode } from "@/services/renderer/nodes/root-node";
 import type { ExportOptions, ExportResult } from "@/types/export";
+import type { TimelineTrack, VideoTrack, VideoElement } from "@/types/timeline";
+import type { MediaAsset } from "@/types/assets";
+import type { TBackground } from "@/types/project";
 import { CanvasRenderer } from "@/services/renderer/canvas-renderer";
 import { SceneExporter } from "@/services/renderer/scene-exporter";
 import { buildScene } from "@/services/renderer/scene-builder";
@@ -168,80 +171,98 @@ export class RendererManager {
 				});
 			}
 
-			// --- Step 2: Render base video client-side as a blob ---
-			onProgress?.({ progress: 0.08 });
-
-			const baseExporter = new SceneExporter({
-				width: canvasSize.width,
-				height: canvasSize.height,
-				fps: exportFps,
-				format: "mp4", // Always MP4 for the intermediate base video
-				quality,
-				shouldIncludeAudio: false, // Audio handled separately by ffmpeg
-			});
-
-			let cancelled = false;
-			baseExporter.on("progress", (progress) => {
-				const adjusted = 0.08 + progress * 0.3; // 8% to 38%
-				onProgress?.({ progress: adjusted });
-			});
-
-			const cancelCheck = setInterval(() => {
-				if (onCancel?.()) {
-					cancelled = true;
-					baseExporter.cancel();
-				}
-			}, 100);
-
-			const baseBuffer = await baseExporter.export({ rootNode: scene });
-			clearInterval(cancelCheck);
-
-			if (cancelled) return { success: false, cancelled: true };
-			if (!baseBuffer) return { success: false, error: "Failed to render base video" };
-
-			if (onCancel?.()) return { success: false, cancelled: true };
-
-			// --- Step 3: Upload base video (and audio if present) to server ---
-			onProgress?.({ progress: 0.4 });
-
+			// --- Step 2: Get base video — fast path (raw upload) or SceneExporter ---
 			const { uploadBlob, callServerExport } = await import(
 				"@/services/renderer/server-export"
 			);
 			type VideoClipExportData = import("@/services/renderer/server-export").VideoClipExportData;
+			type MainVideoSegment = import("@/services/renderer/server-export").MainVideoSegment;
 
-			const baseBlob = new Blob([baseBuffer], { type: "video/mp4" });
-			const baseVideoPath = await uploadBlob({
-				blob: baseBlob,
-				filename: "base.mp4",
+			let baseVideoPath: string | undefined;
+			let mainVideoSegments: MainVideoSegment[] | undefined;
+
+			const fastPath = this.detectServerFastPath({
+				tracks,
+				mediaAssets,
+				background: activeProject.settings.background,
 			});
 
+			if (fastPath) {
+				// Fast path: upload raw video, skip SceneExporter entirely.
+				// Avoids WebCodecs VideoEncoder → VAAPI → SIGILL crash on long videos.
+				console.log("[Export] Fast path: uploading raw video, skipping SceneExporter");
+				onProgress?.({ progress: 0.1 });
+				const rawBlob = fastPath.asset.file as File;
+				const rawServerPath = await uploadBlob({ blob: rawBlob, filename: "base-raw.mp4" });
+				mainVideoSegments = [{
+					serverPath: rawServerPath,
+					trimStart: fastPath.element.trimStart,
+					duration: fastPath.element.duration,
+					timelineStart: fastPath.element.startTime,
+				}];
+				onProgress?.({ progress: 0.35 });
+			} else {
+				// Standard path: render base video canvas client-side
+				onProgress?.({ progress: 0.08 });
+
+				const baseExporter = new SceneExporter({
+					width: canvasSize.width,
+					height: canvasSize.height,
+					fps: exportFps,
+					format: "mp4",
+					quality,
+					shouldIncludeAudio: false,
+				});
+
+				let cancelled = false;
+				baseExporter.on("progress", (progress) => {
+					const adjusted = 0.08 + progress * 0.3;
+					onProgress?.({ progress: adjusted });
+				});
+
+				const cancelCheck = setInterval(() => {
+					if (onCancel?.()) {
+						cancelled = true;
+						baseExporter.cancel();
+					}
+				}, 100);
+
+				const baseBuffer = await baseExporter.export({ rootNode: scene });
+				clearInterval(cancelCheck);
+
+				if (cancelled) return { success: false, cancelled: true };
+				if (!baseBuffer) return { success: false, error: "Failed to render base video" };
+				if (onCancel?.()) return { success: false, cancelled: true };
+
+				onProgress?.({ progress: 0.4 });
+				const baseBlob = new Blob([baseBuffer], { type: "video/mp4" });
+				baseVideoPath = await uploadBlob({ blob: baseBlob, filename: "base.mp4" });
+			}
+
+			// --- Step 3: Upload audio and PiP clips ---
 			let audioPath: string | undefined;
 			if (includeAudio && audioBuffer) {
 				onProgress?.({ progress: 0.42 });
 				const audioBlob = await this.audioBufferToWav(audioBuffer);
-				audioPath = await uploadBlob({
-					blob: audioBlob,
-					filename: "audio.wav",
-				});
+				audioPath = await uploadBlob({ blob: audioBlob, filename: "audio.wav" });
 			}
 
-			// Upload video clips for PiP overlay (face cam during animation scenes)
+			// Upload video clips for PiP overlay (non-background video tracks)
 			const videoClips: VideoClipExportData[] = [];
 			const mediaMap = new Map(mediaAssets.map((a) => [a.id, a]));
 			for (const track of tracks) {
 				if (track.type !== "video") continue;
 				for (const element of track.elements) {
 					if (element.type !== "video") continue;
-					const ve = element as import("@/types/timeline").VideoElement;
+					const ve = element as VideoElement;
 					const asset = mediaMap.get(ve.mediaId);
 					if (!asset?.url) continue;
+					// Skip the main background video already uploaded via fast path
+					if (fastPath && asset.id === fastPath.asset.id) continue;
 					try {
 						const resp = await fetch(asset.url);
 						const blob = await resp.blob();
-						const clipPath = await uploadBlob({
-							blob,
-							filename: `clip-${ve.id}.mp4`,
-						});
+						const clipPath = await uploadBlob({ blob, filename: `clip-${ve.id}.mp4` });
 						videoClips.push({
 							serverPath: clipPath,
 							startTime: ve.startTime,
@@ -261,6 +282,7 @@ export class RendererManager {
 
 			const result = await callServerExport({
 				baseVideoPath,
+				mainVideoSegments,
 				audioPath,
 				animationScenes,
 				videoClips: videoClips.length > 0 ? videoClips : undefined,
@@ -272,7 +294,6 @@ export class RendererManager {
 				quality,
 				includeAudio: !!includeAudio,
 				onProgress: (serverProgress, stage) => {
-					// Server progress maps to 45% - 100%
 					const adjusted = 0.45 + serverProgress * 0.55;
 					onProgress?.({ progress: adjusted });
 				},
@@ -290,6 +311,69 @@ export class RendererManager {
 				error: error instanceof Error ? error.message : "Unknown export error",
 			};
 		}
+	}
+
+	/**
+	 * Detect if the project is simple enough to bypass client-side SceneExporter.
+	 * Returns the main video element and asset if eligible, otherwise null.
+	 *
+	 * Eligible when: single background video with identity transform, no canvas
+	 * overlays (text/sticker/image/effect), no blur background.
+	 */
+	private detectServerFastPath({
+		tracks,
+		mediaAssets,
+		background,
+	}: {
+		tracks: TimelineTrack[];
+		mediaAssets: MediaAsset[];
+		background: TBackground;
+	}): { element: VideoElement; asset: MediaAsset } | null {
+		// Blur background requires canvas rendering
+		if (background.type === "blur") return null;
+
+		// Any non-hidden text/sticker/effect tracks require canvas rendering
+		for (const track of tracks) {
+			if ("hidden" in track && track.hidden) continue;
+			if (track.type === "text" && track.elements.length > 0) return null;
+			if (track.type === "sticker" && track.elements.length > 0) return null;
+			if (track.type === "effect" && track.elements.length > 0) return null;
+		}
+
+		// Find the main video track
+		const mainTrack = tracks.find(
+			(t) => t.type === "video" && (t as VideoTrack).isMain,
+		) as VideoTrack | undefined;
+		if (!mainTrack) return null;
+
+		// Main track must have exactly 1 video element (images need canvas rendering)
+		const videoElements = mainTrack.elements.filter(
+			(e): e is VideoElement => e.type === "video",
+		);
+		if (videoElements.length !== 1) return null;
+		if (mainTrack.elements.some((e) => e.type === "image")) return null;
+
+		const el = videoElements[0];
+
+		// Video must start at timeline position 0 (no leading gap)
+		if (el.startTime !== 0) return null;
+
+		// Video must have identity transform (scale/rotation/position)
+		if (el.transform.scale !== 1) return null;
+		if (el.transform.rotate !== 0) return null;
+		if (el.transform.position.x !== 0 || el.transform.position.y !== 0) return null;
+
+		// Video must be fully opaque with no effects or non-normal blend mode
+		if (el.opacity !== 1) return null;
+		if (el.effects && el.effects.length > 0) return null;
+		if (el.blendMode && el.blendMode !== "normal") return null;
+
+		// Must have the raw file available for upload
+		const mediaMap = new Map(mediaAssets.map((a) => [a.id, a]));
+		const asset = mediaMap.get(el.mediaId);
+		if (!asset?.file) return null;
+
+		return { element: el, asset };
 	}
 
 	/**

@@ -1,23 +1,25 @@
-import {
-	Input,
-	ALL_FORMATS,
-	BlobSource,
-	CanvasSink,
-	type WrappedCanvas,
-} from "mediabunny";
+/**
+ * Video frame cache using HTMLVideoElement.
+ *
+ * Previously used mediabunny's CanvasSink which routes through WebCodecs
+ * VideoDecoder → VAAPI (hardware decoder) on Linux. VAAPI accumulates GPU
+ * memory over time and eventually kills Chrome's renderer process with SIGILL
+ * on long videos (1min+) or complex multi-track projects.
+ *
+ * HTMLVideoElement uses the browser's built-in media pipeline which:
+ * - Streams video from an object URL (low memory, no full-file buffering)
+ * - Has mature memory management built into the browser
+ * - Does not accumulate decoder state the way WebCodecs does
+ * - Is universally stable across Linux/VAAPI configurations
+ */
 
-interface VideoSinkData {
-	sink: CanvasSink;
-	iterator: AsyncGenerator<WrappedCanvas, void, unknown> | null;
-	currentFrame: WrappedCanvas | null;
-	nextFrame: WrappedCanvas | null;
-	lastTime: number;
-	prefetching: boolean;
-	prefetchPromise: Promise<void> | null;
+interface VideoEntry {
+	video: HTMLVideoElement;
+	objectUrl: string;
 }
 
 export class VideoCache {
-	private sinks = new Map<string, VideoSinkData>();
+	private videos = new Map<string, VideoEntry>();
 	private initPromises = new Map<string, Promise<void>>();
 
 	async getFrameAt({
@@ -28,289 +30,136 @@ export class VideoCache {
 		mediaId: string;
 		file: File;
 		time: number;
-	}): Promise<WrappedCanvas | null> {
-		await this.ensureSink({ mediaId, file });
+	}): Promise<{ source: CanvasImageSource; width: number; height: number } | null> {
+		await this.ensureVideo({ mediaId, file });
 
-		const sinkData = this.sinks.get(mediaId);
-		if (!sinkData) return null;
+		const entry = this.videos.get(mediaId);
+		if (!entry) return null;
 
-		if (sinkData.nextFrame && sinkData.nextFrame.timestamp <= time) {
-			sinkData.currentFrame = sinkData.nextFrame;
-			sinkData.nextFrame = null;
-			this.startPrefetch({ sinkData });
+		const { video } = entry;
+
+		// Seek to the requested time if not already there (half-frame tolerance)
+		const tolerance = 1 / 120;
+		if (Math.abs(video.currentTime - time) > tolerance) {
+			await this.seekTo({ video, time });
 		}
 
-		if (
-			sinkData.currentFrame &&
-			this.isFrameValid({ frame: sinkData.currentFrame, time })
-		) {
-			if (!sinkData.nextFrame && !sinkData.prefetching) {
-				this.startPrefetch({ sinkData });
-			}
-			return sinkData.currentFrame;
+		if (video.readyState < 2 /* HAVE_CURRENT_DATA */) {
+			return null;
 		}
 
-		if (
-			sinkData.iterator &&
-			sinkData.currentFrame &&
-			time >= sinkData.lastTime &&
-			time < sinkData.lastTime + 2.0
-		) {
-			const frame = await this.iterateToTime({ sinkData, targetTime: time });
-			if (frame) {
-				if (!sinkData.nextFrame && !sinkData.prefetching) {
-					this.startPrefetch({ sinkData });
-				}
-				return frame;
-			}
-		}
-
-		const frame = await this.seekToTime({ sinkData, time });
-		if (frame && !sinkData.nextFrame && !sinkData.prefetching) {
-			this.startPrefetch({ sinkData });
-		}
-		return frame;
+		return {
+			source: video,
+			width: video.videoWidth,
+			height: video.videoHeight,
+		};
 	}
 
-	private isFrameValid({
-		frame,
+	private seekTo({
+		video,
 		time,
 	}: {
-		frame: WrappedCanvas;
+		video: HTMLVideoElement;
 		time: number;
-	}): boolean {
-		return time >= frame.timestamp && time < frame.timestamp + frame.duration;
-	}
-	private async iterateToTime({
-		sinkData,
-		targetTime,
-	}: {
-		sinkData: VideoSinkData;
-		targetTime: number;
-	}): Promise<WrappedCanvas | null> {
-		if (!sinkData.iterator) return null;
-
-		try {
-			while (true) {
-				// Wait for any pending prefetch to finish before touching iterator
-				if (sinkData.prefetching && sinkData.prefetchPromise) {
-					await sinkData.prefetchPromise;
-				}
-
-				// Check if the nextFrame (which might have just arrived) is what we need
-				if (
-					sinkData.nextFrame &&
-					sinkData.nextFrame.timestamp <= targetTime + 0.05 // Tolerance
-				) {
-					sinkData.currentFrame = sinkData.nextFrame;
-					sinkData.nextFrame = null;
-				} else {
-					const { value: frame, done } = await sinkData.iterator.next();
-
-					if (done || !frame) break;
-
-					sinkData.currentFrame = frame;
-				}
-
-				const frame = sinkData.currentFrame;
-				if (!frame) break;
-
-				sinkData.lastTime = frame.timestamp;
-
-				if (this.isFrameValid({ frame, time: targetTime })) {
-					return frame;
-				}
-
-				if (frame.timestamp > targetTime + 1.0) break;
-			}
-		} catch (error) {
-			console.warn("Iterator failed, will restart:", error);
-			sinkData.iterator = null;
-		}
-
-		return null;
-	}
-	private async seekToTime({
-		sinkData,
-		time,
-	}: {
-		sinkData: VideoSinkData;
-		time: number;
-	}): Promise<WrappedCanvas | null> {
-		try {
-			if (sinkData.prefetching && sinkData.prefetchPromise) {
-				await sinkData.prefetchPromise;
-			}
-
-			if (sinkData.iterator) {
-				await sinkData.iterator.return();
-				sinkData.iterator = null;
-			}
-
-			sinkData.nextFrame = null;
-			sinkData.iterator = sinkData.sink.canvases(time);
-			sinkData.lastTime = time;
-
-			// Fetch current frame
-			const { value: frame } = await sinkData.iterator.next();
-
-			if (frame) {
-				sinkData.currentFrame = frame;
-
-				// Aggressively fetch next frame immediately to fill buffer
-				// This matches the mediaplayer example which fetches 2 frames on start
-				try {
-					const { value: next } = await sinkData.iterator.next();
-					if (next) {
-						sinkData.nextFrame = next;
-					}
-				} catch (e) {
-					console.warn("Failed to pre-fetch next frame on seek:", e);
-				}
-
-				return frame;
-			}
-		} catch (error) {
-			console.warn("Failed to seek video:", error);
-		}
-
-		return null;
-	}
-
-	private startPrefetch({ sinkData }: { sinkData: VideoSinkData }): void {
-		if (sinkData.prefetching || !sinkData.iterator || sinkData.nextFrame) {
-			return;
-		}
-
-		sinkData.prefetching = true;
-		sinkData.prefetchPromise = this.prefetchNextFrame({ sinkData });
-	}
-
-	private async prefetchNextFrame({
-		sinkData,
-	}: {
-		sinkData: VideoSinkData;
 	}): Promise<void> {
-		if (!sinkData.iterator) {
-			sinkData.prefetching = false;
-			sinkData.prefetchPromise = null;
-			return;
-		}
-
-		try {
-			const { value: frame, done } = await sinkData.iterator.next();
-
-			if (done || !frame) {
-				sinkData.prefetching = false;
-				sinkData.prefetchPromise = null;
-				return;
-			}
-
-			sinkData.nextFrame = frame;
-			sinkData.prefetching = false;
-			sinkData.prefetchPromise = null;
-		} catch (error) {
-			console.warn("Prefetch failed:", error);
-			sinkData.prefetching = false;
-			sinkData.prefetchPromise = null;
-			sinkData.iterator = null;
-		}
+		return new Promise<void>((resolve) => {
+			const onSeeked = () => {
+				video.removeEventListener("seeked", onSeeked);
+				resolve();
+			};
+			video.addEventListener("seeked", onSeeked);
+			video.currentTime = time;
+		});
 	}
-	private async ensureSink({
+
+	private async ensureVideo({
 		mediaId,
 		file,
 	}: {
 		mediaId: string;
 		file: File;
 	}): Promise<void> {
-		if (this.sinks.has(mediaId)) return;
+		if (this.videos.has(mediaId)) return;
 
 		if (this.initPromises.has(mediaId)) {
 			await this.initPromises.get(mediaId);
 			return;
 		}
 
-		const initPromise = this.initializeSink({ mediaId, file });
+		const initPromise = this.initializeVideo({ mediaId, file });
 		this.initPromises.set(mediaId, initPromise);
-
 		try {
 			await initPromise;
 		} finally {
 			this.initPromises.delete(mediaId);
 		}
 	}
-	private async initializeSink({
+
+	private initializeVideo({
 		mediaId,
 		file,
 	}: {
 		mediaId: string;
 		file: File;
 	}): Promise<void> {
-		try {
-			const input = new Input({
-				source: new BlobSource(file),
-				formats: ALL_FORMATS,
-			});
-
-			const videoTrack = await input.getPrimaryVideoTrack();
-			if (!videoTrack) {
-				throw new Error("No video track found");
+		return new Promise<void>((resolve, reject) => {
+			if (typeof document === "undefined") {
+				reject(new Error("HTMLVideoElement not available (SSR context)"));
+				return;
 			}
 
-			const canDecode = await videoTrack.canDecode();
-			if (!canDecode) {
-				throw new Error("Video codec not supported for decoding");
-			}
+			const objectUrl = URL.createObjectURL(file);
+			const video = document.createElement("video");
+			video.src = objectUrl;
+			video.muted = true;
+			video.preload = "auto";
+			video.playsInline = true;
 
-			const sink = new CanvasSink(videoTrack, {
-				poolSize: 3,
-				fit: "contain",
-			});
+			const onMetadata = () => {
+				video.removeEventListener("loadedmetadata", onMetadata);
+				video.removeEventListener("error", onError);
+				this.videos.set(mediaId, { video, objectUrl });
+				resolve();
+			};
 
-			this.sinks.set(mediaId, {
-				sink,
-				iterator: null,
-				currentFrame: null,
-				nextFrame: null,
-				lastTime: -1,
-				prefetching: false,
-				prefetchPromise: null,
-			});
-		} catch (error) {
-			console.error(`Failed to initialize video sink for ${mediaId}:`, error);
-			throw error;
-		}
+			const onError = () => {
+				video.removeEventListener("loadedmetadata", onMetadata);
+				video.removeEventListener("error", onError);
+				URL.revokeObjectURL(objectUrl);
+				reject(new Error(`Failed to load video: ${file.name}`));
+			};
+
+			video.addEventListener("loadedmetadata", onMetadata);
+			video.addEventListener("error", onError);
+		});
 	}
 
 	clearVideo({ mediaId }: { mediaId: string }): void {
-		const sinkData = this.sinks.get(mediaId);
-		if (sinkData) {
-			if (sinkData.iterator) {
-				void sinkData.iterator.return();
-			}
-
-			this.sinks.delete(mediaId);
+		const entry = this.videos.get(mediaId);
+		if (entry) {
+			entry.video.src = "";
+			URL.revokeObjectURL(entry.objectUrl);
+			this.videos.delete(mediaId);
 		}
-
 		this.initPromises.delete(mediaId);
 	}
 
 	clearAll(): void {
-		for (const [mediaId] of this.sinks) {
+		for (const [mediaId] of this.videos) {
 			this.clearVideo({ mediaId });
 		}
 	}
 
 	getStats() {
 		return {
-			totalSinks: this.sinks.size,
-			activeSinks: Array.from(this.sinks.values()).filter((s) => s.iterator)
-				.length,
-			cachedFrames: Array.from(this.sinks.values()).filter(
-				(s) => s.currentFrame,
-			).length,
+			totalSinks: this.videos.size,
+			activeSinks: this.videos.size,
+			cachedFrames: this.videos.size,
 		};
 	}
 }
 
 export const videoCache = new VideoCache();
+
+// Both preview and export now use the same stable HTMLVideoElement pipeline.
+export const previewVideoCache = videoCache;

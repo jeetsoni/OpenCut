@@ -21,6 +21,7 @@ import {
 	interpolate,
 	spring,
 	Easing,
+	registerRoot,
 } from "remotion";
 import { transform } from "sucrase";
 
@@ -128,7 +129,7 @@ function AnimationRoot({ scenes }: AnimationProps) {
  * Remotion root that registers the composition.
  * Used by @remotion/renderer's bundle() as the entry point.
  */
-export function RemotionRoot() {
+function RemotionRoot() {
 	return (
 		<Composition
 			id="animation"
@@ -141,3 +142,5 @@ export function RemotionRoot() {
 		/>
 	);
 }
+
+registerRoot(RemotionRoot);

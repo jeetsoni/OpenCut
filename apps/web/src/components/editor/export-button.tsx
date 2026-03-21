@@ -105,10 +105,86 @@ function ExportPopover({
 	const [shouldIncludeAudio, setShouldIncludeAudio] = useState<boolean>(
 		DEFAULT_EXPORT_OPTIONS.includeAudio ?? true,
 	);
+	const [isExportingAnimation, setIsExportingAnimation] = useState(false);
+	const [animationExportProgress, setAnimationExportProgress] = useState(0);
+	const [animationExportError, setAnimationExportError] = useState<string | null>(null);
+	const [isExportingFace, setIsExportingFace] = useState(false);
+	const [faceExportProgress, setFaceExportProgress] = useState(0);
+	const [faceExportError, setFaceExportError] = useState<string | null>(null);
 
 	const overlays = usePreviewStore((s) => s.overlays);
 	const sceneStatuses = useSceneStore((s) => s.sceneStatuses);
 	const hasAnimations = overlays.animations && Object.values(sceneStatuses).some((s) => s.hasAnimation);
+
+	// Detect any video track (main or non-main) with clips
+	const hasFaceVideo = editor.timeline.getTracks().some(
+		(t) => t.type === "video" && t.elements.some((e) => e.type === "video"),
+	);
+
+	const handleExportAnimation = async () => {
+		if (!activeProject) return;
+		setAnimationExportError(null);
+		setIsExportingAnimation(true);
+		setAnimationExportProgress(0);
+		try {
+			const { exportAnimationOnly } = await import("@/services/renderer/server-export");
+			const { downloadBuffer } = await import("@/lib/export");
+			const result = await exportAnimationOnly({
+				projectId: activeProject.metadata.id,
+				fps: activeProject.settings.fps,
+				duration: editor.timeline.getTotalDuration(),
+				width: activeProject.settings.canvasSize.width,
+				height: activeProject.settings.canvasSize.height,
+				quality,
+				onProgress: setAnimationExportProgress,
+			});
+			if (result.success && result.buffer) {
+				downloadBuffer({
+					buffer: result.buffer,
+					filename: `${activeProject.metadata.name}-animation.mp4`,
+					mimeType: "video/mp4",
+				});
+			} else {
+				setAnimationExportError(result.error || "Animation export failed");
+			}
+		} catch (err) {
+			setAnimationExportError(err instanceof Error ? err.message : "Animation export failed");
+		} finally {
+			setIsExportingAnimation(false);
+			setAnimationExportProgress(0);
+		}
+	};
+
+	const handleExportFace = async () => {
+		if (!activeProject) return;
+		setFaceExportError(null);
+		setIsExportingFace(true);
+		setFaceExportProgress(0);
+		try {
+			const { exportFaceVideo } = await import("@/services/renderer/server-export");
+			const { downloadBuffer } = await import("@/lib/export");
+			const result = await exportFaceVideo({
+				tracks: editor.timeline.getTracks(),
+				mediaAssets: editor.media.getAssets(),
+				projectName: activeProject.metadata.name,
+				onProgress: setFaceExportProgress,
+			});
+			if (result.success && result.buffer) {
+				downloadBuffer({
+					buffer: result.buffer,
+					filename: `${activeProject.metadata.name}-face.mp4`,
+					mimeType: "video/mp4",
+				});
+			} else {
+				setFaceExportError(result.error || "Face video export failed");
+			}
+		} catch (err) {
+			setFaceExportError(err instanceof Error ? err.message : "Face video export failed");
+		} finally {
+			setIsExportingFace(false);
+			setFaceExportProgress(0);
+		}
+	};
 
 	const handleExport = async () => {
 		if (!activeProject) return;
@@ -249,13 +325,63 @@ function ExportPopover({
 
 								<div className="p-3 pt-0 flex flex-col gap-2">
 									{hasAnimations && (
-										<div className="rounded-md border border-blue-500/30 bg-blue-500/10 p-2.5">
-											<p className="text-xs text-blue-200">
-												Animations detected — they'll be rendered server-side for pixel-perfect export.
-											</p>
-										</div>
+										<>
+											<div className="rounded-md border border-blue-500/30 bg-blue-500/10 p-2.5">
+												<p className="text-xs text-blue-200">
+													Animations detected — they'll be rendered server-side for pixel-perfect export.
+												</p>
+											</div>
+											{animationExportError && (
+												<p className="text-xs text-destructive">{animationExportError}</p>
+											)}
+											{isExportingAnimation ? (
+												<div className="flex flex-col gap-1.5">
+													<div className="flex items-center justify-between">
+														<span className="text-xs text-muted-foreground">Exporting animation…</span>
+														<span className="text-xs text-muted-foreground">{Math.round(animationExportProgress * 100)}%</span>
+													</div>
+													<Progress value={animationExportProgress * 100} className="w-full" />
+												</div>
+											) : (
+												<Button
+													variant="outline"
+													onClick={handleExportAnimation}
+													className="w-full gap-2"
+													disabled={isExporting}
+												>
+													<Download className="size-4" />
+													Export Animation Only
+												</Button>
+											)}
+										</>
 									)}
-									<Button onClick={handleExport} className="w-full gap-2">
+									{hasFaceVideo && (
+										<>
+											{faceExportError && (
+												<p className="text-xs text-destructive">{faceExportError}</p>
+											)}
+											{isExportingFace ? (
+												<div className="flex flex-col gap-1.5">
+													<div className="flex items-center justify-between">
+														<span className="text-xs text-muted-foreground">Exporting face video…</span>
+														<span className="text-xs text-muted-foreground">{Math.round(faceExportProgress * 100)}%</span>
+													</div>
+													<Progress value={faceExportProgress * 100} className="w-full" />
+												</div>
+											) : (
+												<Button
+													variant="outline"
+													onClick={handleExportFace}
+													className="w-full gap-2"
+													disabled={isExporting || isExportingAnimation}
+												>
+													<Download className="size-4" />
+													Export Face Video Only
+												</Button>
+											)}
+										</>
+									)}
+									<Button onClick={handleExport} className="w-full gap-2" disabled={isExportingAnimation || isExportingFace}>
 										<Download className="size-4" />
 										Export
 									</Button>

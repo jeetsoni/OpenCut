@@ -53,12 +53,20 @@ interface ExportRequest {
 	width: number;
 	height: number;
 	baseVideoPath?: string;
+	/** Raw video segments to build the base from (skips client-side SceneExporter) */
+	mainVideoSegments?: MainVideoSegmentData[];
 	format: "mp4" | "webm";
 	quality: "low" | "medium" | "high" | "very_high";
 	includeAudio: boolean;
 	audioPath?: string;
 	/** Video clips for PiP overlay (face cam in bottom-left during animation scenes) */
 	videoClips?: VideoClipData[];
+	/** When true, export only the animation overlay as a standalone video (no base video needed) */
+	animationOnly?: boolean;
+	/** When true, concatenate faceVideoSegments into a standalone video (no base video needed) */
+	faceVideoOnly?: boolean;
+	/** Ordered face-cam segments to concatenate for faceVideoOnly export */
+	faceVideoSegments?: MainVideoSegmentData[];
 }
 
 interface VideoClipData {
@@ -67,6 +75,14 @@ interface VideoClipData {
 	startTime: number;
 	duration: number;
 	trimStart: number;
+}
+
+interface MainVideoSegmentData {
+	/** Server-side path to the raw video file */
+	serverPath: string;
+	trimStart: number;
+	duration: number;
+	timelineStart: number;
 }
 
 /** CRF values for libx264 (lower = higher quality, 0 = lossless) */
@@ -584,6 +600,85 @@ __define("scheduler", function(module, exports) {
 }
 
 /**
+ * Build a base video from raw uploaded segments by trimming with ffmpeg.
+ *
+ * Uses input seeking (-ss before -i) for fast keyframe-level seeking combined
+ * with re-encoding (libx264) to:
+ *  1. Fix freeze artifacts: stream copy (-c copy) copies incomplete GOPs when
+ *     seeking mid-GOP, causing players to freeze until the next keyframe.
+ *     Re-encoding creates a proper I-frame at the start of the output.
+ *  2. Fix duration: stream copy may output more frames than requested when
+ *     keyframes are sparse. Re-encoding honours -t exactly.
+ */
+function buildBaseFromSegments({
+	segments,
+	outputPath,
+}: {
+	segments: MainVideoSegmentData[];
+	outputPath: string;
+}): Promise<void> {
+	return new Promise((resolve, reject) => {
+		const sorted = [...segments].sort((a, b) => a.timelineStart - b.timelineStart);
+		const args: string[] = ["-y"];
+
+		// Fast input seek for each segment (-ss before -i seeks to nearest keyframe)
+		for (const seg of sorted) {
+			args.push("-ss", String(seg.trimStart), "-t", String(seg.duration), "-i", seg.serverPath);
+		}
+
+		if (sorted.length === 1) {
+			// Single segment: re-encode to fix keyframe alignment and honour -t exactly.
+			// No explicit -map so FFmpeg auto-selects all available streams (video + audio).
+			args.push(
+				"-c:v", "libx264",
+				"-preset", "fast",
+				"-crf", "18",
+				"-pix_fmt", "yuv420p",
+				"-c:a", "aac",
+				"-b:a", "192k",
+				outputPath,
+			);
+		} else {
+			// Multiple segments: filter_complex concat with re-encoding.
+			// Build video + audio concat; use anullsrc fallback so segments without
+			// an audio track still produce a silent audio stream for concat compatibility.
+			const filterParts: string[] = [];
+			for (let i = 0; i < sorted.length; i++) {
+				filterParts.push(`[${i}:v]setpts=PTS-STARTPTS[v${i}]`);
+				// anullsrc gives a silent stream when no audio exists in the input
+				filterParts.push(
+					`[${i}:a]asetpts=PTS-STARTPTS[a${i}]`,
+				);
+			}
+			const concatInputs = sorted.map((_, i) => `[v${i}][a${i}]`).join("");
+			filterParts.push(`${concatInputs}concat=n=${sorted.length}:v=1:a=1[outv][outa]`);
+
+			args.push(
+				"-filter_complex", filterParts.join(";"),
+				"-map", "[outv]",
+				"-map", "[outa]",
+				"-c:v", "libx264",
+				"-preset", "fast",
+				"-crf", "18",
+				"-pix_fmt", "yuv420p",
+				"-c:a", "aac",
+				"-b:a", "192k",
+				outputPath,
+			);
+		}
+
+		const ff = spawn("ffmpeg", args);
+		let stderr = "";
+		ff.stderr.on("data", (d) => { stderr += d.toString(); });
+		ff.on("close", (code) => {
+			if (code === 0) resolve();
+			else reject(new Error(`ffmpeg buildBase exited ${code}: ${stderr.slice(-500)}`));
+		});
+		ff.on("error", reject);
+	});
+}
+
+/**
  * Composite base video + animation overlay + PiP video + audio using ffmpeg.
  *
  * PiP video clips are overlaid in the bottom-left corner with a yellow border,
@@ -854,6 +949,59 @@ function encodeBaseOnly({
 	});
 }
 
+/**
+ * Encode a Puppeteer PNG frame sequence into a standalone video.
+ * Used for animation-only export (no base video, transparent frames on black).
+ */
+function encodeAnimationOnly({
+	framesDir,
+	outputPath,
+	fps,
+	duration,
+	format,
+	quality,
+}: {
+	framesDir: string;
+	outputPath: string;
+	fps: number;
+	duration: number;
+	format: string;
+	quality: string;
+}): Promise<void> {
+	return new Promise((resolve, reject) => {
+		const args: string[] = [
+			"-y",
+			"-framerate", String(fps),
+			"-i", path.join(framesDir, "frame_%06d.png"),
+		];
+
+		if (format === "webm") {
+			const bitrate = QUALITY_BITRATE_WEBM[quality] || "10M";
+			args.push("-c:v", "libvpx-vp9", "-b:v", bitrate, "-pix_fmt", "yuva420p");
+		} else {
+			const crf = QUALITY_CRF[quality] ?? 18;
+			const preset = QUALITY_PRESET[quality] || "medium";
+			args.push(
+				"-c:v", "libx264",
+				"-preset", preset,
+				"-crf", String(crf),
+				"-pix_fmt", "yuv420p",
+			);
+		}
+
+		args.push("-t", String(duration), outputPath);
+
+		const ffmpeg = spawn("ffmpeg", args);
+		let stderr = "";
+		ffmpeg.stderr.on("data", (d) => { stderr += d.toString(); });
+		ffmpeg.on("close", (code) => {
+			if (code === 0) resolve();
+			else reject(new Error(`ffmpeg encodeAnimationOnly exited ${code}: ${stderr.slice(-500)}`));
+		});
+		ffmpeg.on("error", reject);
+	});
+}
+
 export async function POST(request: NextRequest) {
 	const tmpDir = path.join(os.tmpdir(), `opencut-export-${Date.now()}`);
 	fs.mkdirSync(tmpDir, { recursive: true });
@@ -866,19 +1014,30 @@ export async function POST(request: NextRequest) {
 			duration,
 			width = 1080,
 			height = 1920,
-			baseVideoPath,
+			baseVideoPath: rawBaseVideoPath,
+			mainVideoSegments,
 			format = "mp4",
 			quality = "high",
 			includeAudio = true,
 			audioPath,
 			videoClips = [],
+			animationOnly = false,
+			faceVideoOnly = false,
+			faceVideoSegments = [],
 		} = body;
 
-		if (!duration || !baseVideoPath) {
-			return NextResponse.json(
-				{ error: "Missing duration or baseVideoPath" },
-				{ status: 400 },
-			);
+		if (!duration) {
+			return NextResponse.json({ error: "Missing duration" }, { status: 400 });
+		}
+
+		if (!animationOnly && !faceVideoOnly) {
+			const hasVideoSource = rawBaseVideoPath || (mainVideoSegments && mainVideoSegments.length > 0);
+			if (!hasVideoSource) {
+				return NextResponse.json(
+					{ error: "Missing video source (baseVideoPath or mainVideoSegments)" },
+					{ status: 400 },
+				);
+			}
 		}
 
 		const ext = format === "webm" ? ".webm" : ".mp4";
@@ -890,6 +1049,79 @@ export async function POST(request: NextRequest) {
 		const stream = new ReadableStream({
 			async start(controller) {
 				try {
+					// Animation-only export: render frames and encode directly
+					if (animationOnly) {
+						if (!hasAnimations) {
+							throw new Error("No animation scenes provided for animation-only export");
+						}
+						sendSSE(controller, { type: "progress", progress: 0.05, stage: "Rendering animation frames..." });
+						const framesDir = await renderAnimationFrames({
+							scenes: animationScenes,
+							width,
+							height,
+							fps,
+							duration,
+							onProgress: (p) => {
+								sendSSE(controller, { type: "progress", progress: 0.05 + p * 0.8, stage: "Rendering animation frames..." });
+							},
+						});
+						sendSSE(controller, { type: "progress", progress: 0.87, stage: "Encoding video..." });
+						await encodeAnimationOnly({ framesDir, outputPath, fps, duration, format, quality });
+						sendSSE(controller, { type: "progress", progress: 0.97, stage: "Finalizing..." });
+						const fileBuffer = fs.readFileSync(outputPath);
+						sendSSE(controller, { type: "complete" });
+						const encoder = new TextEncoder();
+						controller.enqueue(encoder.encode("\n---BINARY_START---\n"));
+						const CHUNK_SIZE = 64 * 1024;
+						for (let i = 0; i < fileBuffer.length; i += CHUNK_SIZE) {
+							const chunkSize = Math.min(CHUNK_SIZE, fileBuffer.length - i);
+							controller.enqueue(new Uint8Array(fileBuffer.buffer, fileBuffer.byteOffset + i, chunkSize));
+						}
+						controller.close();
+						return;
+					}
+
+					// Face-video-only export: trim + concatenate face cam clips with FFmpeg (stream copy)
+					if (faceVideoOnly) {
+						if (!faceVideoSegments.length) {
+							throw new Error("No face video segments provided");
+						}
+						sendSSE(controller, { type: "progress", progress: 0.1, stage: "Assembling face video clips..." });
+						await buildBaseFromSegments({ segments: faceVideoSegments, outputPath });
+						sendSSE(controller, { type: "progress", progress: 0.9, stage: "Finalizing..." });
+						const faceBuffer = fs.readFileSync(outputPath);
+						sendSSE(controller, { type: "complete" });
+						const faceEnc = new TextEncoder();
+						controller.enqueue(faceEnc.encode("\n---BINARY_START---\n"));
+						const FACE_CHUNK = 64 * 1024;
+						for (let i = 0; i < faceBuffer.length; i += FACE_CHUNK) {
+							const sz = Math.min(FACE_CHUNK, faceBuffer.length - i);
+							controller.enqueue(new Uint8Array(faceBuffer.buffer, faceBuffer.byteOffset + i, sz));
+						}
+						controller.close();
+						return;
+					}
+
+					// Resolve baseVideoPath — either pre-rendered or built from raw segments
+					let baseVideoPath = rawBaseVideoPath;
+					if (!baseVideoPath && mainVideoSegments && mainVideoSegments.length > 0) {
+						sendSSE(controller, {
+							type: "progress",
+							progress: 0.03,
+							stage: "Preparing base video from raw segments...",
+						});
+						const segmentsBasePath = path.join(tmpDir, "base-from-segments.mp4");
+						await buildBaseFromSegments({
+							segments: mainVideoSegments,
+							outputPath: segmentsBasePath,
+						});
+						baseVideoPath = segmentsBasePath;
+					}
+
+					if (!baseVideoPath) {
+						throw new Error("No base video available");
+					}
+
 					let animationFramesDir: string | undefined;
 
 					if (hasAnimations) {
