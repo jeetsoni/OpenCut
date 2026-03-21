@@ -1,5 +1,4 @@
 import type { EditorCore } from "@/core";
-import type { TimelineTrack } from "@/types/timeline";
 import type { MediaAsset } from "@/types/assets";
 import { createAudioContext } from "@/lib/media/audio";
 import { canTracktHaveAudio } from "@/lib/timeline";
@@ -40,6 +39,10 @@ export class AudioManager {
 	private unsubscribers: Array<() => void> = [];
 	/** Decoded AudioBuffers cached by cacheKey — avoids re-decoding on seek/replay. */
 	private bufferCache = new Map<string, AudioBuffer>();
+	/** Keys currently being decoded — prevents duplicate concurrent decodes for the same clip. */
+	private pendingDecodes = new Map<string, Promise<AudioBuffer | null>>();
+	/** Debounce timer for structural changes to avoid rapid re-decode storms. */
+	private structuralChangeTimer: ReturnType<typeof setTimeout> | null = null;
 
 	constructor(private editor: EditorCore) {
 		this.lastVolume = this.editor.playback.getVolume();
@@ -51,19 +54,42 @@ export class AudioManager {
 		);
 		if (typeof window !== "undefined") {
 			window.addEventListener("playback-seek", this.handleSeek);
+			// Unlock the AudioContext on the first user interaction so that
+			// playback triggered via subscription callbacks (which browsers
+			// may not consider a direct user gesture) can produce sound.
+			this.unlockOnInteraction = () => {
+				this.ensureAndResumeContext();
+				window.removeEventListener("pointerdown", this.unlockOnInteraction!);
+				window.removeEventListener("keydown", this.unlockOnInteraction!);
+				this.unlockOnInteraction = null;
+			};
+			window.addEventListener("pointerdown", this.unlockOnInteraction);
+			window.addEventListener("keydown", this.unlockOnInteraction);
 		}
 	}
 
+	private unlockOnInteraction: (() => void) | null = null;
+
 	dispose(): void {
 		this.stopAllNodes();
+		if (this.structuralChangeTimer) {
+			clearTimeout(this.structuralChangeTimer);
+			this.structuralChangeTimer = null;
+		}
 		for (const unsub of this.unsubscribers) {
 			unsub();
 		}
 		this.unsubscribers = [];
 		if (typeof window !== "undefined") {
 			window.removeEventListener("playback-seek", this.handleSeek);
+			if (this.unlockOnInteraction) {
+				window.removeEventListener("pointerdown", this.unlockOnInteraction);
+				window.removeEventListener("keydown", this.unlockOnInteraction);
+				this.unlockOnInteraction = null;
+			}
 		}
 		this.bufferCache.clear();
+		this.pendingDecodes.clear();
 		if (this.audioContext) {
 			void this.audioContext.close();
 			this.audioContext = null;
@@ -110,12 +136,20 @@ export class AudioManager {
 	};
 
 	private handleStructuralChange = (): void => {
-		// Clear the buffer cache when the timeline or media changes so that
-		// any replaced or updated clips get re-decoded next play.
-		this.bufferCache.clear();
+		// Debounce structural changes to avoid rapid re-decode storms when
+		// the timeline or media updates frequently (e.g. dragging elements).
+		if (this.structuralChangeTimer) {
+			clearTimeout(this.structuralChangeTimer);
+		}
+		this.structuralChangeTimer = setTimeout(() => {
+			this.structuralChangeTimer = null;
+			// Clear the buffer cache so replaced or updated clips get re-decoded.
+			this.bufferCache.clear();
+			this.pendingDecodes.clear();
 
-		if (!this.editor.playback.getIsPlaying()) return;
-		void this.startPlayback({ time: this.editor.playback.getCurrentTime() });
+			if (!this.editor.playback.getIsPlaying()) return;
+			void this.startPlayback({ time: this.editor.playback.getCurrentTime() });
+		}, 100);
 	};
 
 	private ensureAudioContext(): AudioContext | null {
@@ -127,6 +161,18 @@ export class AudioManager {
 		this.masterGain.gain.value = this.lastVolume;
 		this.masterGain.connect(this.audioContext.destination);
 		return this.audioContext;
+	}
+
+	/**
+	 * Create (if needed) and resume the AudioContext.
+	 * Call this from a direct user-gesture handler (e.g. play button click)
+	 * so the browser allows audio output.
+	 */
+	ensureAndResumeContext(): void {
+		const ctx = this.ensureAudioContext();
+		if (ctx && ctx.state === "suspended") {
+			void ctx.resume();
+		}
 	}
 
 	private updateGain(): void {
@@ -227,6 +273,28 @@ export class AudioManager {
 		const cached = this.bufferCache.get(clip.cacheKey);
 		if (cached) return cached;
 
+		// Deduplicate: if this clip is already being decoded, wait for that result
+		const pending = this.pendingDecodes.get(clip.cacheKey);
+		if (pending) return pending;
+
+		const decodePromise = this.doDecodeClip(clip, audioContext);
+		this.pendingDecodes.set(clip.cacheKey, decodePromise);
+
+		try {
+			const buffer = await decodePromise;
+			if (buffer) {
+				this.bufferCache.set(clip.cacheKey, buffer);
+			}
+			return buffer;
+		} finally {
+			this.pendingDecodes.delete(clip.cacheKey);
+		}
+	}
+
+	private async doDecodeClip(
+		clip: AudioClip,
+		audioContext: AudioContext,
+	): Promise<AudioBuffer | null> {
 		try {
 			let buffer: AudioBuffer | null = null;
 
@@ -249,9 +317,6 @@ export class AudioManager {
 				buffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
 			}
 
-			if (buffer) {
-				this.bufferCache.set(clip.cacheKey, buffer);
-			}
 			return buffer;
 		} catch (err) {
 			console.warn("[AudioManager] Failed to decode clip:", clip.cacheKey, err);

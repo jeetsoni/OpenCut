@@ -55,6 +55,7 @@ export function useEditorActions() {
 	useActionHandler(
 		"toggle-play",
 		() => {
+			editor.audio.ensureAndResumeContext();
 			editor.playback.toggle();
 		},
 		undefined,
