@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/split-button";
 import { useState } from "react";
 import { TranscriptDialog } from "@/components/editor/dialogs/transcript-dialog";
+import { ScenePlanDialog } from "@/components/editor/dialogs/scene-plan-dialog";
 import { Slider } from "@/components/ui/slider";
 import { TIMELINE_CONSTANTS } from "@/constants/timeline-constants";
 import { sliderToZoom, zoomToSlider } from "@/lib/timeline/zoom-utils";
@@ -87,6 +88,7 @@ function ToolbarLeftSection() {
 	const currentTime = usePlaybackTime();
 	const isCurrentlyBookmarked = editor.scenes.isBookmarked({ time: currentTime });
 	const [transcriptOpen, setTranscriptOpen] = useState(false);
+	const [scenePlanOpen, setScenePlanOpen] = useState(false);
 
 	const handleAction = ({
 		action,
@@ -169,8 +171,8 @@ function ToolbarLeftSection() {
 
 				<ToolbarButton
 					icon={<Sparkles className="size-4" />}
-					tooltip="Detect scene boundaries"
-					onClick={({ event }) => handleAction({ action: "detect-scene-boundaries", event })}
+					tooltip="Scene Plan"
+					onClick={() => setScenePlanOpen(true)}
 				/>
 
 				<ToolbarButton
@@ -205,6 +207,10 @@ function ToolbarLeftSection() {
 			<TranscriptDialog
 				isOpen={transcriptOpen}
 				onOpenChange={setTranscriptOpen}
+			/>
+			<ScenePlanDialog
+				isOpen={scenePlanOpen}
+				onOpenChange={setScenePlanOpen}
 			/>
 		</div>
 	);

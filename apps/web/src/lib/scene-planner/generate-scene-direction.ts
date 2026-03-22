@@ -120,10 +120,12 @@ Respond with ONLY valid JSON for this single scene:
 export async function generateSceneDirection({
 	boundary,
 	transcript,
+	previousDirection,
 	onProgress,
 }: {
 	boundary: SceneBoundary;
 	transcript: ProjectTranscript;
+	previousDirection?: PlannedScene;
 	onProgress?: (progress: DirectionProgress) => void;
 }): Promise<PlannedScene> {
 	onProgress?.({ phase: "preparing", message: `Preparing scene "${boundary.name}"...` });
@@ -139,7 +141,20 @@ export async function generateSceneDirection({
 		.map((w) => `${w.word} [${w.start.toFixed(2)}-${w.end.toFixed(2)}]`)
 		.join(" ");
 
-	const userPrompt = `Generate detailed animation direction for this scene:
+	const previousSceneContext = previousDirection
+		? `## Previous Scene Context (for narrative continuity)
+Scene: "${previousDirection.name}" (${previousDirection.type})
+Mood: ${previousDirection.animationDirection.mood}
+Color accent: ${previousDirection.animationDirection.colorAccent}
+Layout: ${previousDirection.animationDirection.layout}
+Last beat visual: "${previousDirection.animationDirection.beats.at(-1)?.visual ?? ""}"
+
+Use this to ensure visual continuity — you may contrast, evolve, or build upon it, but avoid repeating the exact same layout or visual element.
+
+`
+		: "";
+
+	const userPrompt = `${previousSceneContext}Generate detailed animation direction for this scene:
 
 Scene: ${boundary.name} (${boundary.type})
 Time: ${boundary.startTime.toFixed(2)}s – ${boundary.endTime.toFixed(2)}s

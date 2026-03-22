@@ -29,6 +29,7 @@ import {
 	setProjectBoundaries,
 } from "@/lib/scene-planner/boundaries-store";
 import { generateSceneDirection } from "@/lib/scene-planner/generate-scene-direction";
+import type { PlannedScene } from "@/lib/scene-planner/schema";
 import {
 	getSceneDirection,
 	setSceneDirection,
@@ -1013,6 +1014,148 @@ export function useEditorActions() {
 					const message =
 						error instanceof Error ? error.message : "Unknown error";
 					toast.error("Animation bake failed", {
+						id: toastId,
+						description: message,
+					});
+				}
+			})();
+		},
+		undefined,
+	);
+
+	// --- Generate all animations: detect boundaries + direction + code for every scene ---
+	useActionHandler(
+		"generate-all-animations",
+		() => {
+			const config = getAIProviderConfig();
+			if (!config?.apiKey) {
+				toast.error("AI provider not configured", {
+					description: "Go to the menu → AI Settings to add your API key.",
+				});
+				return;
+			}
+
+			const projectId = editor.project.getActive()?.metadata.id;
+			if (!projectId) {
+				toast.error("No active project");
+				return;
+			}
+
+			const toastId = toast.loading("Generating all animations...", {
+				description: "Loading transcript...",
+			});
+
+			void (async () => {
+				try {
+					const transcript = await getProjectTranscript({ projectId });
+					if (!transcript) {
+						toast.error("No transcript found", {
+							id: toastId,
+							description: "Generate a transcript first.",
+						});
+						return;
+					}
+
+					// Step 1: Detect boundaries if not already done
+					let boundaries = await getProjectBoundaries({ projectId });
+					if (!boundaries) {
+						toast.loading("Detecting scene boundaries...", { id: toastId });
+						boundaries = await detectSceneBoundaries({
+							transcript,
+							onProgress: (p) => toast.loading(p.message, { id: toastId }),
+						});
+						await setProjectBoundaries({ projectId, boundaries });
+
+						// Close gaps and re-split at scene boundaries
+						toast.loading("Applying scene splits...", { id: toastId });
+						editor.timeline.closeGaps();
+						editor.timeline.mergeAdjacentElements();
+
+						const splitTimes = boundaries.boundaries
+							.map((b) => b.startTime)
+							.filter((t) => t > 0)
+							.sort((a, b) => a - b);
+
+						for (const splitTime of splitTimes) {
+							const currentTracks = editor.timeline.getTracks();
+							const elementsAtTime: { trackId: string; elementId: string }[] = [];
+							for (const track of currentTracks) {
+								for (const el of track.elements) {
+									if (el.startTime < splitTime && el.startTime + el.duration > splitTime) {
+										elementsAtTime.push({ trackId: track.id, elementId: el.id });
+									}
+								}
+							}
+							if (elementsAtTime.length > 0) {
+								editor.timeline.splitElements({ elements: elementsAtTime, splitTime });
+							}
+						}
+
+						// Build element→scene mapping
+						const updatedTracks = editor.timeline.getTracks();
+						const elementSceneMap: Record<string, number> = {};
+						for (const track of updatedTracks) {
+							for (const el of track.elements) {
+								const elMid = el.startTime + el.duration / 2;
+								const matchingBoundary = boundaries.boundaries.find(
+									(b) => elMid >= b.startTime && elMid < b.endTime,
+								);
+								if (matchingBoundary) {
+									elementSceneMap[el.id] = matchingBoundary.id;
+								}
+							}
+						}
+
+						await useSceneStore.getState().loadBoundaries(projectId);
+						useSceneStore.getState().setElementSceneMap(elementSceneMap);
+					}
+
+					const scenes = boundaries.boundaries;
+					const total = scenes.length;
+
+					// Phase 1: Sequential direction generation — each scene gets the
+					// previous scene's direction as context for narrative continuity.
+					toast.loading(`Generating directions (1/${total})...`, { id: toastId });
+					const directions: PlannedScene[] = [];
+					for (let i = 0; i < scenes.length; i++) {
+						const boundary = scenes[i];
+						const sceneId = boundary.id;
+						toast.loading(`Generating direction for "${boundary.name}" (${i + 1}/${total})...`, { id: toastId });
+						const direction = await generateSceneDirection({
+							boundary,
+							transcript,
+							previousDirection: directions[i - 1],
+							onProgress: (p) => toast.loading(p.message, { id: toastId }),
+						});
+						await setSceneDirection({ projectId, sceneId, direction });
+						await useSceneStore.getState().refreshScene(projectId, sceneId);
+						directions.push(direction);
+					}
+
+					// Phase 2: Parallel animation code generation — all scenes fire at
+					// once since code gen only depends on each scene's own direction.
+					toast.loading(`Generating animation code for all ${total} scenes in parallel...`, { id: toastId });
+					await Promise.all(
+						scenes.map(async (boundary, i) => {
+							const sceneId = boundary.id;
+							const code = await generateSceneRemotionCode({
+								scene: directions[i],
+							});
+							await setSceneRemotionCode({ projectId, sceneId, code });
+							await useSceneStore.getState().refreshScene(projectId, sceneId);
+						}),
+					);
+
+					const { usePreviewStore } = await import("@/stores/preview-store");
+					usePreviewStore.getState().setOverlayVisibility({ overlay: "animations", isVisible: true });
+
+					toast.success("All animations generated", {
+						id: toastId,
+						description: `${total} scene${total !== 1 ? "s" : ""} — directions chained, code generated in parallel.`,
+					});
+				} catch (error: unknown) {
+					const message = error instanceof Error ? error.message : "Unknown error";
+					toast.error("Animation generation failed", {
 						id: toastId,
 						description: message,
 					});

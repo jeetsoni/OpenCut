@@ -8,9 +8,7 @@ import type { MediaAsset } from "@/types/assets";
 import { canElementHaveAudio } from "@/lib/timeline/element-utils";
 import { canTracktHaveAudio } from "@/lib/timeline";
 import { mediaSupportsAudio } from "@/lib/media/media-utils";
-import { Input, ALL_FORMATS, BlobSource, AudioBufferSink } from "mediabunny";
 
-const MAX_AUDIO_CHANNELS = 2;
 const EXPORT_SAMPLE_RATE = 44100;
 
 export type CollectedAudioElement = Omit<
@@ -38,23 +36,27 @@ export async function decodeAudioToFloat32({
 	audioBlob: Blob;
 }): Promise<DecodedAudio> {
 	const audioContext = createAudioContext();
-	const arrayBuffer = await audioBlob.arrayBuffer();
-	const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+	try {
+		const arrayBuffer = await audioBlob.arrayBuffer();
+		const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
-	// mix down to mono
-	const numChannels = audioBuffer.numberOfChannels;
-	const length = audioBuffer.length;
-	const samples = new Float32Array(length);
+		// mix down to mono
+		const numChannels = audioBuffer.numberOfChannels;
+		const length = audioBuffer.length;
+		const samples = new Float32Array(length);
 
-	for (let i = 0; i < length; i++) {
-		let sum = 0;
-		for (let channel = 0; channel < numChannels; channel++) {
-			sum += audioBuffer.getChannelData(channel)[i];
+		for (let i = 0; i < length; i++) {
+			let sum = 0;
+			for (let channel = 0; channel < numChannels; channel++) {
+				sum += audioBuffer.getChannelData(channel)[i];
+			}
+			samples[i] = sum / numChannels;
 		}
-		samples[i] = sum / numChannels;
-	}
 
-	return { samples, sampleRate: audioBuffer.sampleRate };
+		return { samples, sampleRate: audioBuffer.sampleRate };
+	} finally {
+		void audioContext.close();
+	}
 }
 
 export async function collectAudioElements({
@@ -69,6 +71,9 @@ export async function collectAudioElements({
 	const mediaMap = new Map<string, MediaAsset>(
 		mediaAssets.map((media) => [media.id, media]),
 	);
+	// Cache decode promises by media asset ID to avoid redundant concurrent decodes
+	// of the same file when multiple timeline clips share the same source.
+	const decodeCache = new Map<string, Promise<AudioBuffer | null>>();
 	const pendingElements: Array<Promise<CollectedAudioElement | null>> = [];
 
 	for (const track of tracks) {
@@ -106,20 +111,27 @@ export async function collectAudioElements({
 				const mediaAsset = mediaMap.get(element.mediaId);
 				if (!mediaAsset || !mediaSupportsAudio({ media: mediaAsset })) continue;
 
+				if (!decodeCache.has(mediaAsset.id)) {
+					decodeCache.set(
+						mediaAsset.id,
+						resolveAudioBufferForVideoElement({ mediaAsset, audioContext }),
+					);
+				}
+
+				const bufferPromise = decodeCache.get(mediaAsset.id)!;
+				const el = element;
+				const trackMuted = isTrackMuted;
 				pendingElements.push(
-					resolveAudioBufferForVideoElement({
-						mediaAsset,
-						audioContext,
-					}).then((audioBuffer) => {
+					bufferPromise.then((audioBuffer) => {
 						if (!audioBuffer) return null;
-						const elementMuted = element.muted ?? false;
+						const elementMuted = el.muted ?? false;
 						return {
 							buffer: audioBuffer,
-							startTime: element.startTime,
-							duration: element.duration,
-							trimStart: element.trimStart,
-							trimEnd: element.trimEnd,
-							muted: elementMuted || isTrackMuted,
+							startTime: el.startTime,
+							duration: el.duration,
+							trimStart: el.trimStart,
+							trimEnd: el.trimEnd,
+							muted: elementMuted || trackMuted,
 							volume: 1,
 						};
 					}),
@@ -176,83 +188,15 @@ async function resolveAudioBufferForVideoElement({
 	mediaAsset: MediaAsset;
 	audioContext: AudioContext;
 }): Promise<AudioBuffer | null> {
-	// First try the simple Web Audio API path — works for most video formats
-	// and avoids mediabunny's AudioSample GC issues
+	// Use Web Audio API decodeAudioData — works for all common video formats
+	// (MP4/AAC, WebM/Opus, WebM/Vorbis). Mediabunny WASM is intentionally
+	// avoided here as it can trigger SIGILL crashes on some CPUs.
 	try {
-		console.log("[audio] Trying Web Audio API decode for:", mediaAsset.id);
 		const arrayBuffer = await mediaAsset.file.arrayBuffer();
-		const decoded = await audioContext.decodeAudioData(arrayBuffer.slice(0));
-		console.log("[audio] Web Audio API decoded:", decoded.length, "samples,", decoded.numberOfChannels, "ch");
-		return decoded;
-	} catch (webAudioError) {
-		console.warn("[audio] Web Audio API decode failed, falling back to mediabunny:", webAudioError);
-	}
-
-	// Fallback: use mediabunny's demuxer for formats Web Audio can't handle
-	const input = new Input({
-		source: new BlobSource(mediaAsset.file),
-		formats: ALL_FORMATS,
-	});
-
-	try {
-		const audioTrack = await input.getPrimaryAudioTrack();
-		if (!audioTrack) {
-			console.warn("[audio] No primary audio track found in video asset:", mediaAsset.id);
-			return null;
-		}
-
-		console.log("[audio] Decoding audio via mediabunny for:", mediaAsset.id);
-		const sink = new AudioBufferSink(audioTrack);
-		const targetSampleRate = audioContext.sampleRate;
-
-		const chunks: AudioBuffer[] = [];
-		let totalSamples = 0;
-
-		for await (const { buffer } of sink.buffers(0)) {
-			chunks.push(buffer);
-			totalSamples += buffer.length;
-		}
-
-		console.log("[audio] Decoded", chunks.length, "chunks,", totalSamples, "total samples");
-
-		if (chunks.length === 0) return null;
-
-		const nativeSampleRate = chunks[0].sampleRate;
-		const numChannels = Math.min(MAX_AUDIO_CHANNELS, chunks[0].numberOfChannels);
-
-		const nativeChannels = Array.from(
-			{ length: numChannels },
-			() => new Float32Array(totalSamples),
-		);
-		let offset = 0;
-		for (const chunk of chunks) {
-			for (let channel = 0; channel < numChannels; channel++) {
-				const sourceData = chunk.getChannelData(Math.min(channel, chunk.numberOfChannels - 1));
-				nativeChannels[channel].set(sourceData, offset);
-			}
-			offset += chunk.length;
-		}
-
-		// use OfflineAudioContext for high-quality resampling to target rate
-		const outputSamples = Math.ceil(totalSamples * (targetSampleRate / nativeSampleRate));
-		const offlineContext = new OfflineAudioContext(numChannels, outputSamples, targetSampleRate);
-
-		const nativeBuffer = audioContext.createBuffer(numChannels, totalSamples, nativeSampleRate);
-		for (let ch = 0; ch < numChannels; ch++) {
-			nativeBuffer.copyToChannel(nativeChannels[ch], ch);
-		}
-
-		const sourceNode = offlineContext.createBufferSource();
-		sourceNode.buffer = nativeBuffer;
-		sourceNode.connect(offlineContext.destination);
-		sourceNode.start(0);
-
-		return await offlineContext.startRendering();
+		return await audioContext.decodeAudioData(arrayBuffer);
 	} catch (error) {
-		console.warn("Failed to decode video audio:", error);
+		console.warn("[audio] Failed to decode video audio for:", mediaAsset.id, error);
 		return null;
-	} finally {
-		input.dispose();
 	}
 }
 
@@ -515,36 +459,43 @@ export async function createTimelineAudioBuffer({
 	sampleRate?: number;
 	audioContext?: AudioContext;
 }): Promise<AudioBuffer | null> {
+	const ownedContext = !audioContext;
 	const context = audioContext ?? createAudioContext({ sampleRate });
 
-	const audioElements = await collectAudioElements({
-		tracks,
-		mediaAssets,
-		audioContext: context,
-	});
+	try {
+		const audioElements = await collectAudioElements({
+			tracks,
+			mediaAssets,
+			audioContext: context,
+		});
 
-	if (audioElements.length === 0) return null;
+		if (audioElements.length === 0) return null;
 
-	const outputChannels = 2;
-	const outputLength = Math.ceil(duration * sampleRate);
-	const outputBuffer = context.createBuffer(
-		outputChannels,
-		outputLength,
-		sampleRate,
-	);
-
-	for (const element of audioElements) {
-		if (element.muted) continue;
-
-		mixAudioChannels({
-			element,
-			outputBuffer,
+		const outputChannels = 2;
+		const outputLength = Math.ceil(duration * sampleRate);
+		const outputBuffer = context.createBuffer(
+			outputChannels,
 			outputLength,
 			sampleRate,
-		});
-	}
+		);
 
-	return outputBuffer;
+		for (const element of audioElements) {
+			if (element.muted) continue;
+
+			mixAudioChannels({
+				element,
+				outputBuffer,
+				outputLength,
+				sampleRate,
+			});
+		}
+
+		return outputBuffer;
+	} finally {
+		if (ownedContext) {
+			void context.close();
+		}
+	}
 }
 
 function mixAudioChannels({

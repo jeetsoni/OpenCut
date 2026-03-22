@@ -190,6 +190,10 @@ export const ACTIONS = {
 		description: "Render animations to MP4 on the server for fast export",
 		category: "editing",
 	},
+	"generate-all-animations": {
+		description: "Detect scene boundaries then generate direction + animation code for every scene",
+		category: "editing",
+	},
 } as const satisfies Record<string, TActionDefinition>;
 
 export type TAction = keyof typeof ACTIONS;

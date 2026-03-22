@@ -61,9 +61,9 @@ export function ScenePlanDialog({
 
 	const projectId = editor.project.getActive()?.metadata.id;
 
-	const loadData = useCallback(async () => {
+	const loadData = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
 		if (!projectId) return;
-		setLoading(true);
+		if (!silent) setLoading(true);
 
 		const [boundariesResult, transcript] = await Promise.all([
 			getProjectBoundaries({ projectId }),
@@ -96,23 +96,28 @@ export function ScenePlanDialog({
 			setSceneDirections(directions);
 		}
 
-		setLoading(false);
+		if (!silent) setLoading(false);
 	}, [projectId]);
 
 	useEffect(() => {
-		if (isOpen) loadData();
+		if (isOpen) void loadData();
 	}, [isOpen, loadData]);
 
 	// Poll for updates while dialog is open (picks up async AI results)
 	useEffect(() => {
 		if (!isOpen) return;
-		const interval = setInterval(loadData, 3000);
+		const interval = setInterval(() => void loadData({ silent: true }), 3000);
 		return () => clearInterval(interval);
 	}, [isOpen, loadData]);
 
 	const handleDetectBoundaries = () => {
 		onOpenChange(false);
 		invokeAction("detect-scene-boundaries");
+	};
+
+	const handleGenerateAllAnimations = () => {
+		onOpenChange(false);
+		invokeAction("generate-all-animations");
 	};
 
 	const handleRedetect = async () => {
@@ -232,9 +237,17 @@ export function ScenePlanDialog({
 									? "Detect scene boundaries from your transcript, then work on each scene individually."
 									: "Generate a transcript first, then detect scene boundaries."}
 							</p>
-							<Button onClick={handleDetectBoundaries} disabled={!hasTranscript}>
-								{hasTranscript ? "Detect Scene Boundaries" : "Transcript Required"}
-							</Button>
+							<div className="flex gap-2">
+								<Button onClick={handleDetectBoundaries} disabled={!hasTranscript} variant="outline">
+									{hasTranscript ? "Detect Scene Boundaries" : "Transcript Required"}
+								</Button>
+								{hasTranscript && (
+									<Button onClick={handleGenerateAllAnimations}>
+										<Sparkles size={14} className="mr-1.5" />
+										Generate All Animations
+									</Button>
+								)}
+							</div>
 						</div>
 					)}
 				</DialogBody>
@@ -243,6 +256,10 @@ export function ScenePlanDialog({
 					<DialogFooter>
 						<Button variant="outline" size="sm" onClick={handleRedetect}>
 							Re-detect Boundaries
+						</Button>
+						<Button variant="outline" size="sm" onClick={handleGenerateAllAnimations}>
+							<Sparkles size={14} className="mr-1.5" />
+							Generate All Animations
 						</Button>
 						<Button onClick={() => onOpenChange(false)}>Done</Button>
 					</DialogFooter>
