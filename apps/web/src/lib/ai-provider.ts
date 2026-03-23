@@ -5,6 +5,10 @@
  * Supports: OpenAI-compatible, Google Gemini (for LLM), and Groq (for fast transcription).
  */
 
+import { generateText } from "ai";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createOpenAI } from "@ai-sdk/openai";
+
 const STORAGE_KEY = "opencut:ai-provider";
 
 export type AIProviderType = "openai" | "gemini";
@@ -48,11 +52,21 @@ export async function promptLLM({ prompt }: { prompt: string }): Promise<string>
 		throw new Error("No AI provider configured. Please set your API key in Settings.");
 	}
 
+	let model;
 	if (config.provider === "gemini") {
-		return promptGemini({ prompt, config });
+		const google = createGoogleGenerativeAI({ apiKey: config.apiKey });
+		model = google(config.model || "gemini-2.0-flash");
+	} else {
+		const openai = createOpenAI({
+			apiKey: config.apiKey,
+			baseURL: config.baseUrl || undefined,
+		});
+		model = openai(config.model || "gpt-4o-mini");
 	}
 
-	return promptOpenAICompatible({ prompt, config });
+	const { text } = await generateText({ model, prompt, temperature: 0.1 });
+	if (!text) throw new Error("Empty response from LLM");
+	return text;
 }
 
 /**
@@ -166,74 +180,3 @@ export async function transcribeWithGroqVerbose({
 	};
 }
 
-async function promptGemini({
-	prompt,
-	config,
-}: {
-	prompt: string;
-	config: AIProviderConfig;
-}): Promise<string> {
-	const model = config.model || "gemini-2.0-flash";
-	const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${config.apiKey}`;
-
-	const response = await fetch(url, {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({
-			contents: [{ parts: [{ text: prompt }] }],
-			generationConfig: { temperature: 0.1 },
-		}),
-		signal: AbortSignal.timeout(120_000),
-	});
-
-	if (!response.ok) {
-		const errorText = await response.text();
-		throw new Error(`Gemini API error (${response.status}): ${errorText}`);
-	}
-
-	const data = await response.json();
-	const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-	if (!text) {
-		const blockReason = data?.candidates?.[0]?.finishReason;
-		const promptFeedback = data?.promptFeedback?.blockReason;
-		throw new Error(
-			`Empty response from Gemini${blockReason ? ` (finishReason: ${blockReason})` : ""}${promptFeedback ? ` (blocked: ${promptFeedback})` : ""}`,
-		);
-	}
-	return text;
-}
-
-async function promptOpenAICompatible({
-	prompt,
-	config,
-}: {
-	prompt: string;
-	config: AIProviderConfig;
-}): Promise<string> {
-	const baseUrl = config.baseUrl || "https://api.openai.com/v1";
-	const model = config.model || "gpt-4o-mini";
-
-	const response = await fetch(`${baseUrl}/chat/completions`, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			Authorization: `Bearer ${config.apiKey}`,
-		},
-		body: JSON.stringify({
-			model,
-			messages: [{ role: "user", content: prompt }],
-			temperature: 0.1,
-		}),
-		signal: AbortSignal.timeout(120_000),
-	});
-
-	if (!response.ok) {
-		const errorText = await response.text();
-		throw new Error(`OpenAI API error (${response.status}): ${errorText}`);
-	}
-
-	const data = await response.json();
-	const text = data?.choices?.[0]?.message?.content;
-	if (!text) throw new Error("Empty response from OpenAI");
-	return text;
-}

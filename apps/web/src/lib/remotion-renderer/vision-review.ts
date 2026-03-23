@@ -5,7 +5,8 @@
  * and returns a description of any layout bugs found.
  */
 
-import { getAIProviderConfig } from "@/lib/ai-provider";
+import { generateText } from "ai";
+import { buildModel } from "@/lib/ai/provider";
 
 const VISION_SYSTEM_PROMPT = `You are a visual QA engineer reviewing screenshots of Remotion animation components for OBJECTIVE LAYOUT BUGS ONLY — not design preferences.
 
@@ -42,101 +43,32 @@ export async function visionReviewFrames(
 ): Promise<string> {
 	if (frames.length === 0) return "No visual issues found.";
 
-	const config = getAIProviderConfig();
-	if (!config?.apiKey) return "No visual issues found.";
-
 	const userText = `Review these ${frames.length} screenshot(s) from scene "${sceneName}" for layout bugs. Each frame is from a different animation beat.`;
 
 	try {
-		if (config.provider === "gemini") {
-			return await reviewWithGemini({ frames, userText, config });
-		}
-		return await reviewWithOpenAI({ frames, userText, config });
+		const model = buildModel({ gemini: "gemini-2.0-flash" });
+		const { text } = await generateText({
+			model,
+			system: VISION_SYSTEM_PROMPT,
+			messages: [
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: userText },
+						...frames.map((b64) => ({
+							type: "image" as const,
+							image: b64,
+							mimeType: "image/png" as const,
+						})),
+					],
+				},
+			],
+			temperature: 0.1,
+		});
+
+		return text ?? "No visual issues found.";
 	} catch (err) {
 		console.warn("[VisionReview] Vision API call failed:", err);
 		return "No visual issues found.";
 	}
-}
-
-async function reviewWithOpenAI({
-	frames,
-	userText,
-	config,
-}: {
-	frames: string[];
-	userText: string;
-	config: { apiKey: string; baseUrl?: string; model?: string };
-}): Promise<string> {
-	const baseUrl = config.baseUrl || "https://api.openai.com/v1";
-	const model = config.model || "gpt-4o-mini";
-
-	// Build content array: text first, then each image
-	const content: unknown[] = [{ type: "text", text: `${VISION_SYSTEM_PROMPT}\n\n${userText}` }];
-	for (const b64 of frames) {
-		content.push({
-			type: "image_url",
-			image_url: { url: `data:image/png;base64,${b64}`, detail: "low" },
-		});
-	}
-
-	const response = await fetch(`${baseUrl}/chat/completions`, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			Authorization: `Bearer ${config.apiKey}`,
-		},
-		body: JSON.stringify({
-			model,
-			messages: [{ role: "user", content }],
-			temperature: 0.1,
-			max_tokens: 512,
-		}),
-		signal: AbortSignal.timeout(60_000),
-	});
-
-	if (!response.ok) {
-		const err = await response.text();
-		throw new Error(`OpenAI vision error (${response.status}): ${err}`);
-	}
-
-	const data = await response.json();
-	return (data?.choices?.[0]?.message?.content as string | undefined) ?? "No visual issues found.";
-}
-
-async function reviewWithGemini({
-	frames,
-	userText,
-	config,
-}: {
-	frames: string[];
-	userText: string;
-	config: { apiKey: string; model?: string };
-}): Promise<string> {
-	// Use gemini-2.0-flash for vision; fall back if user configured something else
-	const model = config.model || "gemini-2.0-flash";
-	const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${config.apiKey}`;
-
-	const parts: unknown[] = [{ text: `${VISION_SYSTEM_PROMPT}\n\n${userText}` }];
-	for (const b64 of frames) {
-		parts.push({ inline_data: { mime_type: "image/png", data: b64 } });
-	}
-
-	const response = await fetch(url, {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({
-			contents: [{ parts }],
-			generationConfig: { temperature: 0.1, maxOutputTokens: 512 },
-		}),
-		signal: AbortSignal.timeout(60_000),
-	});
-
-	if (!response.ok) {
-		const err = await response.text();
-		throw new Error(`Gemini vision error (${response.status}): ${err}`);
-	}
-
-	const data = await response.json();
-	const text = data?.candidates?.[0]?.content?.parts?.[0]?.text as string | undefined;
-	return text ?? "No visual issues found.";
 }

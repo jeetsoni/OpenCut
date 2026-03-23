@@ -6,33 +6,13 @@
  */
 
 import { generateText } from "ai";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { createOpenAI } from "@ai-sdk/openai";
-import { getAIProviderConfig } from "@/lib/ai-provider";
+import { buildModel } from "@/lib/ai/provider";
 import { sceneBoundariesSchema, type SceneBoundaries } from "./boundaries";
 import type { ProjectTranscript } from "@/types/transcription";
 
 export interface BoundaryDetectionProgress {
 	phase: "preparing" | "detecting" | "validating" | "done";
 	message: string;
-}
-
-function buildModel() {
-	const config = getAIProviderConfig();
-	if (!config?.apiKey) {
-		throw new Error("No AI provider configured. Add your API key in AI Settings.");
-	}
-
-	if (config.provider === "gemini") {
-		const google = createGoogleGenerativeAI({ apiKey: config.apiKey });
-		return google(config.model || "gemini-2.5-flash");
-	}
-
-	const openai = createOpenAI({
-		apiKey: config.apiKey,
-		baseURL: config.baseUrl || undefined,
-	});
-	return openai(config.model || "gpt-4o-mini");
 }
 
 function formatTranscript(transcript: ProjectTranscript): string {
@@ -81,7 +61,7 @@ export async function detectSceneBoundaries({
 }): Promise<SceneBoundaries> {
 	onProgress?.({ phase: "preparing", message: "Preparing transcript..." });
 
-	const model = buildModel();
+	const model = buildModel({ gemini: "gemini-2.5-flash" });
 	const transcriptText = formatTranscript(transcript);
 
 	onProgress?.({ phase: "detecting", message: "AI is detecting scene boundaries..." });

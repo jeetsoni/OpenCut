@@ -6,9 +6,7 @@
  */
 
 import { generateText } from "ai";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { createOpenAI } from "@ai-sdk/openai";
-import { getAIProviderConfig } from "@/lib/ai-provider";
+import { buildModel } from "@/lib/ai/provider";
 import type { ScenePlan } from "@/lib/scene-planner/schema";
 import {
 	REMOTION_CODE_SYSTEM_PROMPT,
@@ -18,26 +16,6 @@ import {
 export interface CodeGenProgress {
 	phase: "preparing" | "generating" | "done";
 	message: string;
-}
-
-function buildModel() {
-	const config = getAIProviderConfig();
-	if (!config?.apiKey) {
-		throw new Error(
-			"No AI provider configured. Add your API key in AI Settings.",
-		);
-	}
-
-	if (config.provider === "gemini") {
-		const google = createGoogleGenerativeAI({ apiKey: config.apiKey });
-		return google(config.model || "gemini-3.1-pro-preview");
-	}
-
-	const openai = createOpenAI({
-		apiKey: config.apiKey,
-		baseURL: config.baseUrl || undefined,
-	});
-	return openai(config.model || "gpt-4o-mini");
 }
 
 /**
@@ -83,7 +61,7 @@ export async function generateRemotionCode({
 		message: "Preparing scene plan for code generation...",
 	});
 
-	const model = buildModel();
+	const model = buildModel({ gemini: "gemini-2.5-pro-preview-06-05" });
 
 	// Compact the scene plan to reduce token usage
 	const compactPlan = JSON.stringify(scenePlan, null, 1);

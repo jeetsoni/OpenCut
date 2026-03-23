@@ -5,11 +5,9 @@
  * generates a Remotion component for just that scene.
  */
 
-import { generateText, tool, stepCountIs } from "ai";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { createOpenAI } from "@ai-sdk/openai";
-import { getAIProviderConfig } from "@/lib/ai-provider";
-import { z } from "zod";
+import { generateText, stepCountIs } from "ai";
+import { buildModel } from "@/lib/ai/provider";
+import { applyEdit, createCodeEditorTools } from "@/lib/ai/tools/code-editor";
 import type { PlannedScene } from "@/lib/scene-planner/schema";
 import { captureSceneFrames } from "./capture-frames";
 import { visionReviewFrames } from "./vision-review";
@@ -17,24 +15,6 @@ import { visionReviewFrames } from "./vision-review";
 export interface SceneCodeGenProgress {
 	phase: "preparing" | "generating" | "done";
 	message: string;
-}
-
-function buildModel() {
-	const config = getAIProviderConfig();
-	if (!config?.apiKey) {
-		throw new Error("No AI provider configured. Add your API key in AI Settings.");
-	}
-
-	if (config.provider === "gemini") {
-		const google = createGoogleGenerativeAI({ apiKey: config.apiKey });
-		return google(config.model || "gemini-3.1-pro-preview");
-	}
-
-	const openai = createOpenAI({
-		apiKey: config.apiKey,
-		baseURL: config.baseUrl || undefined,
-	});
-	return openai(config.model || "gpt-4o-mini");
 }
 
 function extractCode(text: string): string {
@@ -207,38 +187,6 @@ const SCENE_CODE_TWEAK_SYSTEM_PROMPT = `You are a precise code editor for Remoti
 - Do NOT rewrite the entire function — only patch what's needed
 - After all edits, respond with a brief summary of what you changed`;
 
-/**
- * Apply a string replacement to code, with error feedback.
- */
-function applyEdit(code: string, oldStr: string, newStr: string): { ok: true; code: string } | { ok: false; error: string } {
-	if (oldStr === newStr) {
-		return { ok: false, error: "oldStr and newStr are identical — nothing to change." };
-	}
-
-	const idx = code.indexOf(oldStr);
-	if (idx === -1) {
-		// Provide helpful context: show a snippet around where it might be
-		const lines = code.split("\n");
-		const preview = lines.slice(0, Math.min(5, lines.length)).join("\n");
-		return {
-			ok: false,
-			error: `oldStr not found in code. Make sure it matches exactly (whitespace matters). First 5 lines of current code:\n${preview}`,
-		};
-	}
-
-	// Check for multiple occurrences
-	const secondIdx = code.indexOf(oldStr, idx + 1);
-	if (secondIdx !== -1) {
-		return {
-			ok: false,
-			error: `oldStr matches multiple locations (at index ${idx} and ${secondIdx}). Include more surrounding context to make it unique.`,
-		};
-	}
-
-	const updated = code.slice(0, idx) + newStr + code.slice(idx + oldStr.length);
-	return { ok: true, code: updated };
-}
-
 const MAX_TWEAK_STEPS = 10;
 
 /**
@@ -258,7 +206,7 @@ export async function tweakSceneRemotionCode({
 }): Promise<string> {
 	onProgress?.({ phase: "preparing", message: `Preparing tweak for "${scene.name}"...` });
 
-	const model = buildModel();
+	const model = buildModel({ gemini: "gemini-2.5-pro-preview-06-05" });
 	let currentCode = existingCode;
 
 	const userPrompt = `The user wants to tweak the animation for scene "${scene.name}" (${scene.type}, ${scene.startTime.toFixed(1)}s–${scene.endTime.toFixed(1)}s).
@@ -275,30 +223,10 @@ Start by calling read_code to see the current animation, then use edit_code to m
 		prompt: userPrompt,
 		temperature: 0.1,
 		stopWhen: stepCountIs(MAX_TWEAK_STEPS),
-		tools: {
-			read_code: tool({
-				description: "Read the current animation code for this scene.",
-				inputSchema: z.object({}),
-				execute: async () => {
-					return { code: currentCode };
-				},
-			}),
-			edit_code: tool({
-				description: "Replace an exact substring in the animation code. oldStr must match exactly (whitespace-sensitive). Returns success or an error message to help you retry.",
-				inputSchema: z.object({
-					oldStr: z.string().describe("The exact substring to find and replace"),
-					newStr: z.string().describe("The replacement string"),
-				}),
-				execute: async ({ oldStr, newStr }: { oldStr: string; newStr: string }) => {
-					const result = applyEdit(currentCode, oldStr, newStr);
-					if (result.ok) {
-						currentCode = result.code;
-						return { success: true, message: "Edit applied successfully." };
-					}
-					return { success: false, message: result.error };
-				},
-			}),
-		},
+		tools: createCodeEditorTools(
+			() => currentCode,
+			(c) => { currentCode = c; },
+		),
 	});
 
 	// Validate the final code still has Main
@@ -319,7 +247,7 @@ async function reviewSceneCode(
 	code: string,
 	sceneName: string,
 ): Promise<string> {
-	const model = buildModel();
+	const model = buildModel({ gemini: "gemini-2.5-pro-preview-06-05" });
 	let currentCode = code;
 
 	await generateText({
@@ -328,28 +256,10 @@ async function reviewSceneCode(
 		prompt: `Review the animation code for scene "${sceneName}" and fix any layout issues you find. Start by calling read_code.`,
 		temperature: 0.1,
 		stopWhen: stepCountIs(8),
-		tools: {
-			read_code: tool({
-				description: "Read the current animation code.",
-				inputSchema: z.object({}),
-				execute: async () => ({ code: currentCode }),
-			}),
-			edit_code: tool({
-				description: "Replace an exact substring in the animation code. oldStr must match exactly (whitespace-sensitive).",
-				inputSchema: z.object({
-					oldStr: z.string().describe("Exact substring to find"),
-					newStr: z.string().describe("Replacement string"),
-				}),
-				execute: async ({ oldStr, newStr }: { oldStr: string; newStr: string }) => {
-					const result = applyEdit(currentCode, oldStr, newStr);
-					if (result.ok) {
-						currentCode = result.code;
-						return { success: true, message: "Edit applied." };
-					}
-					return { success: false, message: result.error };
-				},
-			}),
-		},
+		tools: createCodeEditorTools(
+			() => currentCode,
+			(c) => { currentCode = c; },
+		),
 	});
 
 	// If the review broke the component, return the original
@@ -379,7 +289,7 @@ async function fixWithVisionFeedback(
 	issues: string,
 	sceneName: string,
 ): Promise<string> {
-	const model = buildModel();
+	const model = buildModel({ gemini: "gemini-2.5-pro-preview-06-05" });
 	let currentCode = code;
 
 	await generateText({
@@ -388,28 +298,10 @@ async function fixWithVisionFeedback(
 		prompt: `Fix these visual bugs found in scene "${sceneName}" by reviewing actual screenshots:\n\n${issues}\n\nStart by calling read_code, then make surgical edits for each bug.`,
 		temperature: 0.1,
 		stopWhen: stepCountIs(8),
-		tools: {
-			read_code: tool({
-				description: "Read the current animation code.",
-				inputSchema: z.object({}),
-				execute: async () => ({ code: currentCode }),
-			}),
-			edit_code: tool({
-				description: "Replace an exact substring in the animation code. oldStr must match exactly (whitespace-sensitive).",
-				inputSchema: z.object({
-					oldStr: z.string().describe("Exact substring to find"),
-					newStr: z.string().describe("Replacement string"),
-				}),
-				execute: async ({ oldStr, newStr }: { oldStr: string; newStr: string }) => {
-					const result = applyEdit(currentCode, oldStr, newStr);
-					if (result.ok) {
-						currentCode = result.code;
-						return { success: true, message: "Edit applied." };
-					}
-					return { success: false, message: result.error };
-				},
-			}),
-		},
+		tools: createCodeEditorTools(
+			() => currentCode,
+			(c) => { currentCode = c; },
+		),
 	});
 
 	if (!currentCode.includes("Main")) return code;
@@ -428,7 +320,7 @@ export async function generateSceneRemotionCode({
 }): Promise<string> {
 	onProgress?.({ phase: "preparing", message: `Preparing scene "${scene.name}"...` });
 
-	const model = buildModel();
+	const model = buildModel({ gemini: "gemini-2.5-pro-preview-06-05" });
 	const sceneJson = JSON.stringify(scene, null, 1);
 
 	const userPrompt = `Generate a Remotion component for this single scene. The component receives the scene object as a prop called "scene".

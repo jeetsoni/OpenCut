@@ -7,9 +7,7 @@
  */
 
 import { generateText } from "ai";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { createOpenAI } from "@ai-sdk/openai";
-import { getAIProviderConfig } from "@/lib/ai-provider";
+import { buildModel } from "@/lib/ai/provider";
 import type { SceneBoundary } from "./boundaries";
 import type { PlannedScene } from "./schema";
 import {
@@ -21,24 +19,6 @@ import type { ProjectTranscript } from "@/types/transcription";
 export interface DirectionProgress {
 	phase: "preparing" | "generating" | "done";
 	message: string;
-}
-
-function buildModel() {
-	const config = getAIProviderConfig();
-	if (!config?.apiKey) {
-		throw new Error("No AI provider configured. Add your API key in AI Settings.");
-	}
-
-	if (config.provider === "gemini") {
-		const google = createGoogleGenerativeAI({ apiKey: config.apiKey });
-		return google(config.model || "gemini-2.5-flash");
-	}
-
-	const openai = createOpenAI({
-		apiKey: config.apiKey,
-		baseURL: config.baseUrl || undefined,
-	});
-	return openai(config.model || "gpt-4o-mini");
 }
 
 function extractJson(text: string): string {
@@ -137,7 +117,7 @@ export async function generateSceneDirection({
 }): Promise<PlannedScene> {
 	onProgress?.({ phase: "preparing", message: `Preparing scene "${boundary.name}"...` });
 
-	const model = buildModel();
+	const model = buildModel({ gemini: "gemini-2.5-flash" });
 
 	// Extract words that fall within this scene's time range
 	const sceneWords = transcript.words.filter(
