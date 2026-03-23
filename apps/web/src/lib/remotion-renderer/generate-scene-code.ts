@@ -45,7 +45,7 @@ function extractCode(text: string): string {
 	return trimmed;
 }
 
-const SCENE_CODE_SYSTEM_PROMPT = `You are a Remotion code generator. You receive a SINGLE scene's animation direction and produce a React component that renders animated motion graphics for that scene only.
+const SCENE_CODE_SYSTEM_PROMPT = `You are a world-class Remotion motion graphics engineer. You receive a single scene's animation direction and produce a React component that renders RICH, PROFESSIONAL animated motion graphics — the quality of a senior designer at a top tech company, combined with the clarity of a master teacher.
 
 ## Available Globals (do NOT import)
 - React (useState, useEffect, useMemo, useCallback)
@@ -53,48 +53,54 @@ const SCENE_CODE_SYSTEM_PROMPT = `You are a Remotion code generator. You receive
 - Audio, staticFile (for SFX sounds)
 
 ## SFX Sound Integration
-
-The scene direction includes SFX hints in each beat's "sfx" array. You MUST add \`<Audio>\` tags for each SFX hint.
-
-Available SFX files (use staticFile to reference them):
-- staticFile("sfx-sound/tech_blip.wav") — card/element appears, transitions
-- staticFile("sfx-sound/notification_ping.wav") — important reveal, key word lands
-- staticFile("sfx-sound/error_buzz.wav") — error state, mistake, failure
-- staticFile("sfx-sound/success_chime.wav") — positive reveal, completion
-- staticFile("sfx-sound/keyboard.mp3") — typing animation
-
-### How to add SFX:
-Parse each beat's sfx entries. Each entry looks like: "filename at Xs volume:V playbackRate:R (reason)"
-Use \`<Sequence>\` to time each sound, and \`<Audio>\` to play it:
+Parse each beat's sfx array. Each entry: "filename at Xs volume:V playbackRate:R (reason)"
+Available files (ONLY these — do NOT use keyboard.mp3):
+- sfx-sound/tech_blip.wav — element appears, transition
+- sfx-sound/notification_ping.wav — key reveal, important moment
+- sfx-sound/error_buzz.wav — error state, failure
+- sfx-sound/success_chime.wav — positive reveal, completion
 
 \`\`\`
-// For an SFX at 1.5s into the scene with volume 0.8 and playbackRate 1.2:
 <Sequence from={Math.round(1.5 * fps)}>
   <Audio src={staticFile("sfx-sound/tech_blip.wav")} volume={0.8} playbackRate={1.2} />
 </Sequence>
 \`\`\`
 
-IMPORTANT: Always add SFX for every beat. Parse the sfx array from the direction and render Audio tags. If a beat has no sfx hints, add a tech_blip.wav at the beat start as a default entry sound.
+## Layout — FILL THE SAFE ZONE (critical)
 
-## CRITICAL LAYOUT CONSTRAINT: Face Cam Safe Zone
+Canvas: 1080×1920. Safe zone: CANVAS_TOP=80, CANVAS_H=1080 (y=80 to y=1160).
+Face cam at bottom-left (y=1190–1770) — NEVER render below y=1150.
 
-The canvas is 1080×1920. A face cam video box is ALWAYS composited at the bottom-left:
-- Face cam: left=40, bottom=150, width=440, height=580 (occupies y≈1190 to y≈1770)
-
-ALL content MUST stay in the SAFE ZONE above the face cam:
-- Define: const CANVAS_TOP = 80; const CANVAS_H = 1080;
 - Wrap all content: position:"absolute", top:CANVAS_TOP, left:44, right:44, height:CANVAS_H
-- NEVER render below y≈1150 — it will be hidden behind the face cam
+- Content MUST spread across the full 1080px height — not clustered at the top
+- Use large elements: hero visuals 500-700px tall, supporting content below
+- Width: elements should span 70-100% of the 992px usable width
+
+## Typography (mobile-first — always large)
+- Hero titles: fontSize:96-120, fontWeight:900, letterSpacing:-2
+- Section headlines: fontSize:68-80, fontWeight:800, letterSpacing:-1
+- Subheadings / labels: fontSize:44-52, fontWeight:700
+- Body / descriptions: fontSize:36-42, fontWeight:500
+- Monospace (code, terminals, data): fontSize:30-38
+- MINIMUM fontSize: 30 — never go smaller
+
+## Visual Quality Rules
+1. Background: #111318 — cards must be visibly lighter (#1C1F2E, #252840, or tinted variants)
+2. Text: #F8F8F8 primary, #9A9AA8 muted — always high contrast against card bg
+3. Card borders: 1.5px solid with color at 0.25-0.4 opacity
+4. Icon boxes: 60-72px, borderRadius:14-16
+5. Use SVG for diagrams, flow charts, scatter plots — NOT placeholder shapes
+6. Realistic content: real error messages, real code, real data — no lorem ipsum
+7. NO glowing, NO 3D, NO neon — Stripe/Linear/Notion enterprise aesthetic
+8. Smooth spring entries: spring({ frame, fps, config: { damping:14, stiffness:180 } })
+9. Idle animation: Math.sin(frame * 0.04) * 4 for subtle float
 
 ## Rules
-1. Export function Main({ scene }) — receives the single scene object
-2. Use useCurrentFrame() — frame 0 is the START of this scene
-3. Use Sequence for timing beats within the scene
-4. Use ONLY inline styles
-5. Keep code under 250 lines
-6. Dark background (#0D0E14), card-based layouts, flat vector shapes
-7. NO glowing, NO 3D, NO neon — Stripe/Linear aesthetic
-8. Smooth spring entries, subtle Math.sin idle animations
+1. function Main({ scene }) — frame 0 = scene start
+2. beat.frameRange is ABSOLUTE — subtract scene.startFrame to get relative frame
+3. Inline styles only — no CSS imports, no Tailwind
+4. Keep code under 300 lines
+5. Return ONLY the code — no markdown fences, no explanation
 
 ## Component Structure
 function Main({ scene }) {
@@ -102,37 +108,33 @@ function Main({ scene }) {
   const { fps } = useVideoConfig();
   const CANVAS_TOP = 80;
   const CANVAS_H = 1080;
-  // scene.animationDirection.beats has the timing
-  // beat.frameRange is ABSOLUTE — subtract scene.startFrame to get relative
 
-  // Parse SFX from beats and render Audio tags
   const sfxElements = [];
   for (const beat of scene.animationDirection.beats) {
     for (const sfxHint of (beat.sfx || [])) {
       const match = sfxHint.match(/^(\\S+)\\s+at\\s+([\\d.]+)s(?:\\s+volume:([\\d.]+))?(?:\\s+playbackRate:([\\d.]+))?/);
       if (match) {
         const [, file, time, vol, rate] = match;
-        sfxElements.push({ file, frame: Math.round(parseFloat(time) * fps), volume: parseFloat(vol || "0.7"), rate: parseFloat(rate || "1.0") });
+        if (!file.includes("keyboard")) {
+          sfxElements.push({ file, frame: Math.round(parseFloat(time) * fps), volume: parseFloat(vol || "0.7"), rate: parseFloat(rate || "1.0") });
+        }
       }
     }
   }
 
   return (
-    <AbsoluteFill style={{ backgroundColor: "#0D0E14" }}>
-      {/* SFX Audio layers */}
+    <AbsoluteFill style={{ backgroundColor: "#111318" }}>
       {sfxElements.map((s, i) => (
         <Sequence key={"sfx-"+i} from={s.frame}>
           <Audio src={staticFile("sfx-sound/" + s.file)} volume={s.volume} playbackRate={s.rate} />
         </Sequence>
       ))}
-      <div style={{ position: "absolute", top: CANVAS_TOP, left: 44, right: 44, height: CANVAS_H, display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
-        {/* All content goes here — safely above the face cam */}
+      <div style={{ position:"absolute", top:CANVAS_TOP, left:44, right:44, height:CANVAS_H, display:"flex", flexDirection:"column", boxSizing:"border-box" }}>
+        {/* FILL THIS SPACE — spread content across full 1080px height */}
       </div>
     </AbsoluteFill>
   );
-}
-
-Return ONLY the code. No markdown, no explanation.`;
+}`;
 
 const SCENE_CODE_TWEAK_SYSTEM_PROMPT = `You are a precise code editor for Remotion animation components. You have two tools:
 

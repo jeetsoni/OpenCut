@@ -618,7 +618,17 @@ function buildBaseFromSegments({
 	outputPath: string;
 }): Promise<void> {
 	return new Promise((resolve, reject) => {
-		const sorted = [...segments].sort((a, b) => a.timelineStart - b.timelineStart);
+		// Guard: skip segments with near-zero duration (floating-point residue from
+		// split/trim ops) — ffmpeg rejects -t values below ~0.001s with exit 234.
+		const sorted = [...segments]
+			.filter((s) => s.duration >= 0.01)
+			.sort((a, b) => a.timelineStart - b.timelineStart);
+
+		if (sorted.length === 0) {
+			reject(new Error("All segments have near-zero duration — nothing to encode."));
+			return;
+		}
+
 		const args: string[] = ["-y"];
 
 		// Fast input seek for each segment (-ss before -i seeks to nearest keyframe)

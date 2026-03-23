@@ -452,16 +452,20 @@ export async function exportFaceVideo({
 		}
 	}
 
-	if (segments.length === 0) {
+	// Filter out any segments with a near-zero duration (floating-point residue
+	// from split/trim/close-gaps operations) — ffmpeg rejects -t values < ~0.001s.
+	const validSegments = segments.filter((s) => s.duration >= 0.01);
+
+	if (validSegments.length === 0) {
 		return { success: false, error: "No face cam video clips found on non-main tracks" };
 	}
 
 	// Sort by timeline position
-	segments.sort((a, b) => a.timelineStart - b.timelineStart);
+	validSegments.sort((a, b) => a.timelineStart - b.timelineStart);
 
 	// Upload each raw file to the server
 	const uploaded: MainVideoSegment[] = [];
-	for (const seg of segments) {
+	for (const seg of validSegments) {
 		const serverPath = await uploadBlob({ blob: seg.file, filename: `face-${Date.now()}.mp4` });
 		uploaded.push({
 			serverPath,
@@ -478,7 +482,7 @@ export async function exportFaceVideo({
 		body: JSON.stringify({
 			animationScenes: [],
 			fps: 30,
-			duration: segments.reduce((sum, s) => sum + s.duration, 0),
+			duration: validSegments.reduce((sum, s) => sum + s.duration, 0),
 			width: 1080,
 			height: 1920,
 			format: "mp4",

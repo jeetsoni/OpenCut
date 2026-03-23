@@ -41,11 +41,11 @@ export const SCENE_PLANNER_DESIGN_SYSTEM = `
 ## Design System
 
 Colors:
-- Background: #0D0E14
-- Surface: #161820
-- Raised: #1E2130
-- Text Primary: #F5F0E8
-- Text Muted: #8A8680
+- Background: #111318
+- Surface: #1C1F2E
+- Raised: #252840
+- Text Primary: #F8F8F8
+- Text Muted: #9A9AA8
 - Accents:
   - hookFear (Red): #F55B5B — errors, mistakes, failures, negatives
   - wrongPath (Amber): #F5A623 — warnings, analogies, real-world concepts
@@ -54,32 +54,39 @@ Colors:
   - cta (Yellow): #E8FF47 — CTA, power statements, revelations
   - violet: #7B6CF6 — architecture, orchestration, system-level
 
-Card tinted backgrounds:
-- CARD_SKY: #0D1520, CARD_RED: #1A1014, CARD_GREEN: #0D1A14
-- CARD_AMBER: #1A1610, CARD_VIOLET: #12101E, CARD_YELLOW: #1A1A0D
+Card tinted backgrounds (must be visibly distinct from #111318 background):
+- CARD_SKY: #0E1B2E, CARD_RED: #201018, CARD_GREEN: #0E1E18
+- CARD_AMBER: #201A0E, CARD_VIOLET: #161228, CARD_YELLOW: #1E1E0A
+
+Typography (mobile canvas = 1080px wide — text must be LARGE to be readable):
+- Hero titles: 88-120px, fontWeight 900, letterSpacing: -2
+- Section headlines: 64-80px, fontWeight 800, letterSpacing: -1
+- Subheadings / labels: 44-52px, fontWeight 700
+- Body / descriptions: 36-42px, fontWeight 500
+- Monospace (code, terminals, data): 30-38px
+- NEVER use text smaller than 30px — it becomes unreadable on mobile
 
 Visual rules:
-- Card-based layouts with tinted dark backgrounds
-- Flat vector SVG icons inside small icon boxes (44-52px, borderRadius:10-12)
-- 1px solid border with color+opacity
-- Headlines: 44-72px, fontWeight 700-900, letterSpacing: -1
+- FILL THE SAFE ZONE — content must occupy at least 800px of the 1080px usable height
+- Large breathing layouts: elements should span 70-100% of the 992px usable width
+- Card-based layouts with tinted backgrounds visibly distinct from the main bg
+- Flat vector SVG icons inside icon boxes (56-72px, borderRadius:14-16)
+- 1.5px solid border with color+opacity
 - NO glowing effects, NO 3D, NO neon, NO cartoon elements
 - Maximum 3-4 colors per visual
-- Stripe / Linear / Notion enterprise aesthetic
+- Stripe / Linear / Notion enterprise aesthetic — but LARGE and BOLD for mobile
 
 ## CRITICAL: Face Cam Safe Zone
 
 The canvas is 1080×1920. A face cam video box is ALWAYS present at the bottom-left:
 - Position: left=40, bottom=150, width=440, height=580
-- This means the face cam occupies y=1190 to y=1770 on the left side (x=0 to x=480)
+- Face cam occupies y=1190 to y=1770 on the left side (x=0 to x=480)
 
 ALL animation content MUST stay in the SAFE ZONE above the face cam:
-- Use CANVAS_TOP = 80–140px (top padding)
-- Use CANVAS_HEIGHT = 1080–1100px (usable height)
-- Content must NOT extend below y≈1150 on the canvas
-- This gives you roughly the top 60% of the 1920px canvas for all visuals
-- When describing layout in beat directions, always specify "positioned in the safe zone above face cam"
-- Never place important content in the bottom-left quadrant where the face cam sits`;
+- CANVAS_TOP = 80px, CANVAS_HEIGHT = 1080px (y=80 to y=1160)
+- Content must NOT extend below y=1150
+- FILL THIS SPACE — do not cluster content in the top 200px and leave the rest empty
+- Spread elements vertically across the full 1080px height`;
 
 export const SCENE_PLANNER_ANIMATION_RULES = `
 ## THE #1 RULE: VISUALIZE THE THING ITSELF — Not a Card About It
@@ -150,12 +157,11 @@ Available local SFX files (in /sfx-sound/ folder — use ONLY these):
 - notification_ping.wav — important reveal, key word lands
 - error_buzz.wav — error state, mistake, failure
 - success_chime.wav — positive reveal, completion
-- keyboard.mp3 — typing animation (volume:0.15, playbackRate:1.5-2.0)
 
 Format: "filename at Xs volume:V playbackRate:R (reason)"
 Examples:
 - "tech_blip.wav at 0.5s volume:0.8 playbackRate:1.0 (card appears)"
-- "keyboard.mp3 at 1.2s volume:0.15 playbackRate:1.8 (typing animation)"
+- "notification_ping.wav at 2.1s volume:0.7 playbackRate:1.1 (key reveal)"
 - "success_chime.wav at 3.0s volume:0.6 playbackRate:1.0 (solution revealed)"
 
 IMPORTANT: Use SFX generously — every visual event should have a matching sound.

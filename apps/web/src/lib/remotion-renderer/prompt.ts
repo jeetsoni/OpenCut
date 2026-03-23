@@ -42,20 +42,19 @@ ALL your rendered content MUST stay in the SAFE ZONE above the face cam:
 
 ## Visual Style
 
-- Dark background (#0D0E14)
-- VISUALIZE THE THING ITSELF — when the beat describes a chat UI, build actual message bubbles; when it describes a terminal, build actual monospace output with title bar dots; when it describes a scatter plot, build actual SVG with grid lines and plotted dots
-- Card-based layouts with tinted dark backgrounds — but cards are CONTAINERS for real content (terminals, code editors, chat UIs, diagrams), NOT just emoji + title + subtitle
-- Flat vector shapes (divs with borderRadius, SVGs for diagrams/charts/scatter plots)
+- Background: #111318 — cards must be visibly lighter (#1C1F2E, #252840, tinted variants)
+- Text: #F8F8F8 primary, #9A9AA8 muted — always high contrast
+- VISUALIZE THE THING ITSELF — chat UI = actual message bubbles; terminal = actual monospace output with title bar dots; scatter plot = actual SVG with grid lines and plotted dots
+- Card-based layouts — cards are CONTAINERS for real content, NOT emoji + title + subtitle
+- Flat vector shapes (divs with borderRadius, SVGs for diagrams/charts)
 - Use SVG for technical diagrams: scatter plots, flow charts, node graphs with grid lines, axis labels, connection paths
 - Use monospace fontFamily for anything representing code, terminal output, vectors, or data
-- 1px solid borders with color + opacity
-- Headlines: 44-72px, fontWeight 700-900, letterSpacing: -1
-- NO glowing effects, NO 3D, NO neon
-- Maximum 3-4 colors per visual
-- Stripe / Linear / Notion enterprise aesthetic
-- Smooth spring animations for entries
-- Subtle floating idle animations using Math.sin
-- All content must be REALISTIC — real error messages, real code, real data values, not placeholder text
+- 1.5px solid borders with color + opacity
+- Typography: hero titles 96-120px/900, headlines 68-80px/800, subheadings 44-52px/700, body 36-42px/500, monospace 30-38px — MINIMUM 30px
+- NO glowing effects, NO 3D, NO neon — Stripe / Linear / Notion enterprise aesthetic
+- Smooth spring entries, subtle Math.sin idle animations
+- FILL THE SAFE ZONE — content must spread across full 1080px usable height
+- All content REALISTIC — real error messages, real code, real data — no lorem ipsum
 
 ## Component Structure
 
@@ -67,7 +66,7 @@ function Main({ scenePlan }) {
   const CANVAS_H = 1080;
 
   return (
-    <AbsoluteFill style={{ backgroundColor: scenePlan.designSystem.background }}>
+    <AbsoluteFill style={{ backgroundColor: "#111318" }}>
       {scenePlan.scenes.map((scene) => (
         <Sequence key={scene.id} from={scene.startFrame} durationInFrames={scene.durationFrames}>
           {/* Wrap all scene content in the safe zone container */}
