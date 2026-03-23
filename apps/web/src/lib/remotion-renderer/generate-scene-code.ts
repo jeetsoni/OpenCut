@@ -11,6 +11,8 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { getAIProviderConfig } from "@/lib/ai-provider";
 import { z } from "zod";
 import type { PlannedScene } from "@/lib/scene-planner/schema";
+import { captureSceneFrames } from "./capture-frames";
+import { visionReviewFrames } from "./vision-review";
 
 export interface SceneCodeGenProgress {
 	phase: "preparing" | "generating" | "done";
@@ -95,6 +97,17 @@ Face cam at bottom-left (y=1190–1770) — NEVER render below y=1150.
 8. Smooth spring entries: spring({ frame, fps, config: { damping:14, stiffness:180 } })
 9. Idle animation: Math.sin(frame * 0.04) * 4 for subtle float
 
+## Defensive Layout Rules (prevent accidental overflow — NOT intentional animations)
+These rules apply to STATIC layout only. Animated elements (using interpolate/spring on position/size) are exempt — intentional scale, position, and size transitions are encouraged.
+
+- ALWAYS add overflow:'hidden' to every card/container that has a fixed width or height and is NOT itself animating its size
+- For sibling elements that are BOTH statically positioned (no interpolate/spring on top/left/width/height), use flexbox (display:'flex', gap:N) instead of position:'absolute' — static siblings must not share the same screen region
+- When using position:'absolute' with hardcoded values (no animation), verify: top + height <= CANVAS_H and left + width <= 992
+- ALWAYS add boxSizing:'border-box' to any element with both padding and a fixed size
+- Text on a single line inside a fixed-width container: add whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'
+- Text on multiple lines in a fixed box: add overflow:'hidden', display:'-webkit-box', WebkitLineClamp:N, WebkitBoxOrient:'vertical'
+- Cards that render a mapped array must have a maxHeight and overflow:'hidden' — dynamic lists can grow unbounded otherwise
+
 ## Rules
 1. function Main({ scene }) — frame 0 = scene start
 2. beat.frameRange is ABSOLUTE — subtract scene.startFrame to get relative frame
@@ -135,6 +148,46 @@ function Main({ scene }) {
     </AbsoluteFill>
   );
 }`;
+
+const SCENE_CODE_REVIEW_SYSTEM_PROMPT = `You are a layout QA engineer for Remotion animation components. You fix accidental layout bugs — you do NOT touch intentional animations.
+
+You have two tools:
+1. read_code — Read the current code. ALWAYS call this first.
+2. edit_code — Replace an exact substring. Make surgical fixes only.
+
+## CRITICAL DISTINCTION — what to fix vs what to leave alone
+
+### DO NOT touch (intentional animation):
+- Any element whose position (top/left) or size (width/height) is computed with interpolate(), spring(), or Math.sin() — these animate deliberately and overlap is intentional
+- Elements inside different <Sequence> blocks — they don't coexist at the same frame
+- Scale transforms (transform: \`scale(\${v})\`) — intentional grow/shrink
+- Opacity transitions — intentional reveal
+
+### DO fix (accidental bugs — static layout only):
+These are issues on elements with HARDCODED pixel values and no animation on their position/size.
+
+**Static overlap**: Two siblings both using position:'absolute' with hardcoded top/left/width/height where their bounding boxes intersect AND neither element uses interpolate/spring on its position or size. Fix by converting to flexbox or adjusting static positions.
+
+**Flex overflow**: Flex column children whose heights + gaps sum to more than the parent's fixed height, where none of those heights is animated. Fix by reducing a height or adding overflow:'hidden' to the parent.
+
+**Text overflow**: Text inside a fixed-width container with no overflow protection:
+- Single-line label → add whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'
+- Multi-line text in fixed box → add overflow:'hidden', display:'-webkit-box', WebkitLineClamp:3, WebkitBoxOrient:'vertical'
+
+**Out-of-bounds static element**: Element with hardcoded top + height > 1080 or left + width > 992. Fix by reducing the value.
+
+**Unbounded mapped list**: A .map() rendering children inside a fixed-height container without overflow:'hidden' or maxHeight — the list can grow past the container. Add overflow:'hidden'.
+
+## Workflow
+1. Call read_code
+2. For each issue found, write a one-line note: "Bug: [type] — [element description]"
+3. Call edit_code for each fix — smallest possible change
+4. If no bugs found, respond: "No layout issues found."
+
+Rules:
+- oldStr must match exactly (whitespace-sensitive)
+- Do NOT redesign — only patch the specific bug
+- If unsure whether an overlap is intentional, leave it alone`;
 
 const SCENE_CODE_TWEAK_SYSTEM_PROMPT = `You are a precise code editor for Remotion animation components. You have two tools:
 
@@ -259,6 +312,111 @@ Start by calling read_code to see the current animation, then use edit_code to m
 }
 
 /**
+ * Agentic layout review pass — reads the generated code and applies surgical
+ * fixes for overlap, text overflow, and out-of-bounds issues.
+ */
+async function reviewSceneCode(
+	code: string,
+	sceneName: string,
+): Promise<string> {
+	const model = buildModel();
+	let currentCode = code;
+
+	await generateText({
+		model,
+		system: SCENE_CODE_REVIEW_SYSTEM_PROMPT,
+		prompt: `Review the animation code for scene "${sceneName}" and fix any layout issues you find. Start by calling read_code.`,
+		temperature: 0.1,
+		stopWhen: stepCountIs(8),
+		tools: {
+			read_code: tool({
+				description: "Read the current animation code.",
+				inputSchema: z.object({}),
+				execute: async () => ({ code: currentCode }),
+			}),
+			edit_code: tool({
+				description: "Replace an exact substring in the animation code. oldStr must match exactly (whitespace-sensitive).",
+				inputSchema: z.object({
+					oldStr: z.string().describe("Exact substring to find"),
+					newStr: z.string().describe("Replacement string"),
+				}),
+				execute: async ({ oldStr, newStr }: { oldStr: string; newStr: string }) => {
+					const result = applyEdit(currentCode, oldStr, newStr);
+					if (result.ok) {
+						currentCode = result.code;
+						return { success: true, message: "Edit applied." };
+					}
+					return { success: false, message: result.error };
+				},
+			}),
+		},
+	});
+
+	// If the review broke the component, return the original
+	if (!currentCode.includes("Main")) return code;
+	return currentCode;
+}
+
+const SCENE_CODE_VISION_FIX_SYSTEM_PROMPT = `You are a precise code editor for Remotion animation components. The user will provide specific visual bugs found by inspecting actual screenshots of the animation. Fix ONLY those bugs.
+
+You have two tools:
+1. read_code — Returns the current animation code. ALWAYS call this first.
+2. edit_code — Replaces an exact substring in the code with a new substring.
+
+## Rules
+- Make the SMALLEST possible fix for each reported bug
+- oldStr must be an EXACT substring of the current code (whitespace-sensitive)
+- DO NOT redesign or restyle anything not in the bug list
+- DO NOT touch animated elements (interpolate/spring on position/size) — these are intentional
+- After all fixes, respond briefly with what you changed`;
+
+/**
+ * One agentic fix pass driven by vision feedback.
+ * Only runs when the vision model found actual bugs.
+ */
+async function fixWithVisionFeedback(
+	code: string,
+	issues: string,
+	sceneName: string,
+): Promise<string> {
+	const model = buildModel();
+	let currentCode = code;
+
+	await generateText({
+		model,
+		system: SCENE_CODE_VISION_FIX_SYSTEM_PROMPT,
+		prompt: `Fix these visual bugs found in scene "${sceneName}" by reviewing actual screenshots:\n\n${issues}\n\nStart by calling read_code, then make surgical edits for each bug.`,
+		temperature: 0.1,
+		stopWhen: stepCountIs(8),
+		tools: {
+			read_code: tool({
+				description: "Read the current animation code.",
+				inputSchema: z.object({}),
+				execute: async () => ({ code: currentCode }),
+			}),
+			edit_code: tool({
+				description: "Replace an exact substring in the animation code. oldStr must match exactly (whitespace-sensitive).",
+				inputSchema: z.object({
+					oldStr: z.string().describe("Exact substring to find"),
+					newStr: z.string().describe("Replacement string"),
+				}),
+				execute: async ({ oldStr, newStr }: { oldStr: string; newStr: string }) => {
+					const result = applyEdit(currentCode, oldStr, newStr);
+					if (result.ok) {
+						currentCode = result.code;
+						return { success: true, message: "Edit applied." };
+					}
+					return { success: false, message: result.error };
+				},
+			}),
+		},
+	});
+
+	if (!currentCode.includes("Main")) return code;
+	return currentCode;
+}
+
+/**
  * Generate Remotion code for a single scene.
  */
 export async function generateSceneRemotionCode({
@@ -295,8 +453,29 @@ ${sceneJson}`;
 
 	if (!text) throw new Error("Code generator returned empty output.");
 
-	const code = extractCode(text);
+	let code = extractCode(text);
 	if (!code.includes("Main")) throw new Error("Generated code missing Main component.");
+
+	onProgress?.({ phase: "generating", message: `Reviewing layout for "${scene.name}"...` });
+	code = await reviewSceneCode(code, scene.name);
+
+	// Option C: vision-based review — capture actual rendered frames and feed to the model
+	try {
+		onProgress?.({ phase: "generating", message: `Visual review for "${scene.name}"...` });
+		const frames = await captureSceneFrames(code, scene);
+		if (frames.length > 0) {
+			const issues = await visionReviewFrames(frames, scene.name);
+			const hasIssues = !issues.toLowerCase().includes("no visual issues");
+			if (hasIssues) {
+				console.log(`[VisionReview] Scene "${scene.name}" issues found:\n${issues}`);
+				onProgress?.({ phase: "generating", message: `Fixing visual issues for "${scene.name}"...` });
+				code = await fixWithVisionFeedback(code, issues, scene.name);
+			}
+		}
+	} catch (err) {
+		// Vision review is best-effort — never fail the overall pipeline
+		console.warn(`[VisionReview] Skipped for "${scene.name}":`, err);
+	}
 
 	onProgress?.({ phase: "done", message: `Code ready for "${scene.name}"` });
 

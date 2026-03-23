@@ -14,6 +14,17 @@ These are available as global variables in scope:
 - AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig, interpolate, spring, Easing
 - All from "remotion" — these are already in scope
 
+## Defensive Layout Rules (static layout only — animated elements are exempt)
+These rules apply to elements with hardcoded positions/sizes. Elements using interpolate()/spring() on position or size are intentional animations — do not restrict them.
+
+- Add overflow:'hidden' to fixed-size containers that are NOT animating their size
+- For statically positioned siblings (no animation on top/left/width/height), use flexbox + gap instead of position:'absolute' to avoid accidental overlap
+- Hardcoded absolute positions: verify top + height <= CANVAS_H and left + width <= 992
+- Add boxSizing:'border-box' to elements with both padding and a fixed size
+- Single-line text in fixed-width containers: add whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'
+- Multi-line text in fixed boxes: add overflow:'hidden', display:'-webkit-box', WebkitLineClamp:N, WebkitBoxOrient:'vertical'
+- Mapped arrays inside fixed containers: add maxHeight and overflow:'hidden'
+
 ## Rules
 
 1. Export a single default function component called "Main"
