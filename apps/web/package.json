@@ -60,6 +60,7 @@
     "feed": "^5.1.0",
     "html2canvas": "^1.4.1",
     "input-otp": "^1.4.1",
+    "langfuse": "^3.38.6",
     "lucide-react": "^0.562.0",
     "mediabunny": "^1.29.1",
     "motion": "^12.18.1",

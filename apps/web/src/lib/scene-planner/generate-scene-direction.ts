@@ -6,8 +6,8 @@
  * for just that scene.
  */
 
-import { generateText } from "ai";
 import { buildModel } from "@/lib/ai/provider";
+import { tracedGenerateText } from "@/lib/ai/tracing";
 import type { SceneBoundary } from "./boundaries";
 import type { PlannedScene } from "./schema";
 import {
@@ -159,11 +159,15 @@ Remember:
 
 	onProgress?.({ phase: "generating", message: `AI is directing scene "${boundary.name}"...` });
 
-	const { text } = await generateText({
+	const { text } = await tracedGenerateText({
 		model,
 		system: DIRECTION_SYSTEM_PROMPT,
 		prompt: userPrompt,
 		temperature: 0.4,
+		langfuse: {
+			name: "generate-scene-direction",
+			metadata: { sceneName: boundary.name, sceneType: boundary.type },
+		},
 	});
 
 	if (!text) {

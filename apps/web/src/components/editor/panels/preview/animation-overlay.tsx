@@ -43,6 +43,49 @@ interface VideoClip {
 
 const COMP_WIDTH = 1080;
 const COMP_HEIGHT = 1920;
+const CROSSFADE_MS = 400; // duration of scene cross-dissolve in ms
+
+/**
+ * Wraps a scene with a CSS opacity fade on mount.
+ * direction="in"  → mounts transparent, fades to opaque
+ * direction="out" → mounts opaque, fades to transparent, then calls onFaded
+ */
+function FadeWrapper({
+	children,
+	direction,
+	onFaded,
+}: {
+	children: React.ReactNode;
+	direction: "in" | "out";
+	onFaded?: () => void;
+}) {
+	const [opacity, setOpacity] = useState(direction === "in" ? 0 : 1);
+	const onFadedRef = useRef(onFaded);
+	onFadedRef.current = onFaded;
+
+	useEffect(() => {
+		// Commit the initial opacity to the DOM first, then trigger the CSS transition
+		const raf = requestAnimationFrame(() => setOpacity(direction === "in" ? 1 : 0));
+		return () => cancelAnimationFrame(raf);
+	}, [direction]);
+
+	return (
+		<div
+			style={{
+				position: "absolute",
+				inset: 0,
+				opacity,
+				transition: `opacity ${CROSSFADE_MS}ms ease-in-out`,
+				pointerEvents: direction === "out" ? "none" : "auto",
+			}}
+			onTransitionEnd={() => {
+				if (direction === "out") onFadedRef.current?.();
+			}}
+		>
+			{children}
+		</div>
+	);
+}
 
 interface CompiledScene {
 	sceneId: number;
@@ -95,10 +138,12 @@ function AnimationRenderer({
 	scene,
 	videoClips,
 	fps,
+	showPip = true,
 }: {
 	scene: CompiledScene;
 	videoClips: VideoClip[];
 	fps: number;
+	showPip?: boolean;
 }) {
 	const { Component, direction, sceneId, startTime } = scene;
 	const [frameState, setFrameState] = useState({ frame: 0, currentTime: 0, isPlaying: false });
@@ -148,7 +193,7 @@ function AnimationRenderer({
 				</AnimationErrorBoundary>
 			</EditorFrameContext.Provider>
 
-			{hasClips && (
+			{showPip && hasClips && (
 				<div
 					style={{
 						position: "absolute",
@@ -356,8 +401,12 @@ export function AnimationOverlay() {
 		return clips.sort((a, b) => a.startTime - b.startTime);
 	}, [tracks, mediaAssets]);
 
-	// Use RAF to find active scene without triggering parent re-renders
-	const [activeSceneId, setActiveSceneId] = useState<number | null>(null);
+	// Track current + previous scene for crossfade — only updates on scene boundaries
+	const [sceneTransition, setSceneTransition] = useState<{
+		current: CompiledScene | null;
+		prev: CompiledScene | null;
+	}>({ current: null, prev: null });
+
 	const compiledScenesRef = useRef(compiledScenes);
 	compiledScenesRef.current = compiledScenes;
 
@@ -373,8 +422,12 @@ export function AnimationOverlay() {
 			);
 			const id = scene?.sceneId ?? null;
 			if (id !== lastId) {
+				const prevId = lastId;
 				lastId = id;
-				setActiveSceneId(id);
+				setSceneTransition({
+					current: scene ?? null,
+					prev: compiledScenesRef.current.find((s) => s.sceneId === prevId) ?? null,
+				});
 			}
 			raf = requestAnimationFrame(check);
 		}
@@ -383,22 +436,42 @@ export function AnimationOverlay() {
 		return () => cancelAnimationFrame(raf);
 	}, []);
 
-	const activeScene = useMemo(
-		() => compiledScenes.find((s) => s.sceneId === activeSceneId),
-		[compiledScenes, activeSceneId],
-	);
-
-	if (!activeScene) return null;
+	const { current: currentScene, prev: prevScene } = sceneTransition;
+	if (!currentScene && !prevScene) return null;
 
 	return (
 		<div className="pointer-events-none absolute inset-0 overflow-hidden">
 			<ScaledComposition>
-				<AnimationRenderer
-					key={activeScene.sceneId}
-					scene={activeScene}
-					videoClips={videoClips}
-					fps={fps}
-				/>
+				{/* Outgoing scene — fades out, no PiP to avoid duplicate */}
+				{prevScene && (
+					<FadeWrapper
+						direction="out"
+						key={`prev-${prevScene.sceneId}`}
+						onFaded={() => setSceneTransition((s) => ({ ...s, prev: null }))}
+					>
+						<AnimationRenderer
+							scene={prevScene}
+							videoClips={videoClips}
+							fps={fps}
+							showPip={false}
+						/>
+					</FadeWrapper>
+				)}
+				{/* Incoming scene — fades in, owns the PiP */}
+				{currentScene && (
+					<FadeWrapper
+						direction="in"
+						key={`curr-${currentScene.sceneId}`}
+					>
+						<AnimationRenderer
+							key={currentScene.sceneId}
+							scene={currentScene}
+							videoClips={videoClips}
+							fps={fps}
+							showPip={true}
+						/>
+					</FadeWrapper>
+				)}
 			</ScaledComposition>
 		</div>
 	);

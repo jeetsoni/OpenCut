@@ -169,18 +169,64 @@ export class AnimationFrameRenderer {
 		/** The canvas that has the base video frame already rendered */
 		baseCanvas?: HTMLCanvasElement | OffscreenCanvas;
 	}): Promise<boolean> {
-		const scene = this.scenes.find((s) => time >= s.startTime && time < s.endTime);
-		if (!scene) return false;
+		// Must match CROSSFADE_MS in animation-overlay.tsx
+		const CROSSFADE_DURATION = 0.4;
 
-		const sceneFrame = Math.floor((time - scene.startTime) * this.fps);
-		const cached = this.frameCache.get(`${scene.sceneId}:${sceneFrame}`);
-		if (!cached) return false;
+		// Scene active right now
+		const currentScene = this.scenes.find((s) => time >= s.startTime && time < s.endTime);
 
-		// 1. Clear and draw the animation frame (replaces the base video)
+		// Scene that just ended and is still within the crossfade window
+		const outgoingScene = this.scenes.find(
+			(s) => s.endTime <= time && time < s.endTime + CROSSFADE_DURATION,
+		);
+
+		if (!currentScene && !outgoingScene) return false;
+
 		ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-		ctx.drawImage(cached, 0, 0, canvasWidth, canvasHeight);
 
-		// 2. Draw PiP face cam on top using the base video frame
+		if (outgoingScene) {
+			// Last valid frame of the outgoing scene
+			const lastFrame = Math.max(
+				0,
+				Math.ceil((outgoingScene.endTime - outgoingScene.startTime) * this.fps) - 1,
+			);
+			const outCached = this.frameCache.get(`${outgoingScene.sceneId}:${lastFrame}`);
+			if (outCached) {
+				if (currentScene) {
+					// Crossfade: draw outgoing at full opacity — incoming covers it progressively.
+					// With source-over: result = incoming*t + outgoing*(1-t), which is a correct blend
+					// because both scenes have a solid #111318 background.
+					ctx.drawImage(outCached, 0, 0, canvasWidth, canvasHeight);
+				} else {
+					// No incoming scene — fade the outgoing scene out to transparent
+					const fadeOut = 1 - Math.min(1, (time - outgoingScene.endTime) / CROSSFADE_DURATION);
+					ctx.save();
+					ctx.globalAlpha = fadeOut;
+					ctx.drawImage(outCached, 0, 0, canvasWidth, canvasHeight);
+					ctx.restore();
+				}
+			}
+		}
+
+		if (currentScene) {
+			const sceneFrame = Math.floor((time - currentScene.startTime) * this.fps);
+			const inCached = this.frameCache.get(`${currentScene.sceneId}:${sceneFrame}`);
+			if (inCached) {
+				if (outgoingScene) {
+					// Fade the incoming scene in over the outgoing
+					const progress = Math.min(1, (time - outgoingScene.endTime) / CROSSFADE_DURATION);
+					ctx.save();
+					ctx.globalAlpha = progress;
+					ctx.drawImage(inCached, 0, 0, canvasWidth, canvasHeight);
+					ctx.restore();
+				} else {
+					// No crossfade — draw at full opacity
+					ctx.drawImage(inCached, 0, 0, canvasWidth, canvasHeight);
+				}
+			}
+		}
+
+		// PiP face cam always drawn at full opacity on top
 		if (baseCanvas) {
 			this.drawPipFaceCam({ ctx, canvasWidth, canvasHeight, baseCanvas });
 		}

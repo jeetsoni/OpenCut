@@ -6,8 +6,8 @@
  * via the AI SDK (no server route needed — keys are in localStorage).
  */
 
-import { generateText } from "ai";
 import { buildModel } from "@/lib/ai/provider";
+import { tracedGenerateText } from "@/lib/ai/tracing";
 import { scenePlanSchema, type ScenePlan } from "./schema";
 import {
 	SCENE_PLANNER_SYSTEM_PROMPT,
@@ -119,11 +119,12 @@ IMPORTANT: Respond with ONLY valid JSON matching this structure (no markdown, no
 
 	onProgress?.({ phase: "generating", message: "AI is planning scenes..." });
 
-	const { text } = await generateText({
+	const { text } = await tracedGenerateText({
 		model,
 		system: systemPrompt,
 		prompt: userPrompt,
 		temperature: 0.4,
+		langfuse: { name: "generate-scene-plan" },
 	});
 
 	if (!text) {

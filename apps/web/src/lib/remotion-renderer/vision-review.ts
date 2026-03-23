@@ -5,8 +5,8 @@
  * and returns a description of any layout bugs found.
  */
 
-import { generateText } from "ai";
 import { buildModel } from "@/lib/ai/provider";
+import { tracedGenerateText } from "@/lib/ai/tracing";
 
 const VISION_SYSTEM_PROMPT = `You are a visual QA engineer reviewing screenshots of Remotion animation components for OBJECTIVE LAYOUT BUGS ONLY — not design preferences.
 
@@ -47,7 +47,7 @@ export async function visionReviewFrames(
 
 	try {
 		const model = buildModel({ gemini: "gemini-2.0-flash" });
-		const { text } = await generateText({
+		const { text } = await tracedGenerateText({
 			model,
 			system: VISION_SYSTEM_PROMPT,
 			messages: [
@@ -64,6 +64,10 @@ export async function visionReviewFrames(
 				},
 			],
 			temperature: 0.1,
+			langfuse: {
+				name: "vision-review-scene",
+				metadata: { sceneName, frameCount: frames.length },
+			},
 		});
 
 		return text ?? "No visual issues found.";

@@ -5,8 +5,8 @@
  * string that uses Remotion primitives to render motion graphics.
  */
 
-import { generateText } from "ai";
 import { buildModel } from "@/lib/ai/provider";
+import { tracedGenerateText } from "@/lib/ai/tracing";
 import type { ScenePlan } from "@/lib/scene-planner/schema";
 import {
 	REMOTION_CODE_SYSTEM_PROMPT,
@@ -73,11 +73,12 @@ export async function generateRemotionCode({
 		message: "AI is writing Remotion code...",
 	});
 
-	const { text } = await generateText({
+	const { text } = await tracedGenerateText({
 		model,
 		system: REMOTION_CODE_SYSTEM_PROMPT,
 		prompt: userPrompt,
 		temperature: 0.3,
+		langfuse: { name: "generate-remotion-code" },
 	});
 
 	if (!text) {

@@ -27,6 +27,11 @@ const webEnvSchema = z.object({
 	R2_SECRET_ACCESS_KEY: z.string(),
 	R2_BUCKET_NAME: z.string(),
 	MODAL_TRANSCRIPTION_URL: z.url(),
+
+	// Langfuse observability (optional — app works without these)
+	LANGFUSE_SECRET_KEY: z.string().optional(),
+	LANGFUSE_PUBLIC_KEY: z.string().optional(),
+	LANGFUSE_BASE_URL: z.url().optional(),
 });
 
 export type WebEnv = z.infer<typeof webEnvSchema>;

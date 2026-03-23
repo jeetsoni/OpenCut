@@ -5,8 +5,8 @@
  * No design direction, no animation beats — that comes later per-scene.
  */
 
-import { generateText } from "ai";
 import { buildModel } from "@/lib/ai/provider";
+import { tracedGenerateText } from "@/lib/ai/tracing";
 import { sceneBoundariesSchema, type SceneBoundaries } from "./boundaries";
 import type { ProjectTranscript } from "@/types/transcription";
 
@@ -66,11 +66,12 @@ export async function detectSceneBoundaries({
 
 	onProgress?.({ phase: "detecting", message: "AI is detecting scene boundaries..." });
 
-	const { text } = await generateText({
+	const { text } = await tracedGenerateText({
 		model,
 		system: BOUNDARY_SYSTEM_PROMPT,
 		prompt: transcriptText,
 		temperature: 0.3,
+		langfuse: { name: "detect-boundaries" },
 	});
 
 	if (!text) {

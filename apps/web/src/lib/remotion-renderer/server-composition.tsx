@@ -92,9 +92,59 @@ function compileCode(code: string): React.FC<{ scene: SceneDirection }> | null {
 	}
 }
 
+// Cross-dissolve length in frames (0.4s at 30fps — matches CROSSFADE_MS in overlay)
+const CROSSFADE_FRAMES = 12;
+
+/**
+ * Wraps a compiled scene component with an entry fade-in and (if followed by
+ * another scene) an exit fade-out. The parent Sequence is extended by
+ * CROSSFADE_FRAMES so the outgoing animation overlaps with the incoming one,
+ * producing a proper cross-dissolve instead of a hard cut.
+ */
+function FadingScene({
+	Component,
+	direction,
+	sceneDuration,
+	isFirst,
+	isLast,
+}: {
+	Component: React.FC<{ scene: SceneDirection }>;
+	direction: SceneDirection;
+	sceneDuration: number;
+	isFirst: boolean;
+	isLast: boolean;
+}) {
+	const frame = useCurrentFrame();
+
+	// Fade in at the start of every non-first scene (first scene appears immediately)
+	const fadeIn = isFirst
+		? 1
+		: interpolate(frame, [0, CROSSFADE_FRAMES], [0, 1], {
+				extrapolateLeft: "clamp",
+				extrapolateRight: "clamp",
+		  });
+
+	// Fade out in the extension window beyond the scene's natural duration.
+	// isLast scenes don't need an extension — nothing follows them.
+	const fadeOut = isLast
+		? 1
+		: interpolate(frame, [sceneDuration, sceneDuration + CROSSFADE_FRAMES], [1, 0], {
+				extrapolateLeft: "clamp",
+				extrapolateRight: "clamp",
+		  });
+
+	return (
+		<AbsoluteFill style={{ opacity: Math.min(fadeIn, fadeOut) }}>
+			<Component scene={direction} />
+		</AbsoluteFill>
+	);
+}
+
 /**
  * Root component rendered by Remotion. Lays out all scenes as
  * Sequences so each plays at the correct time.
+ * Non-last scenes are extended by CROSSFADE_FRAMES so outgoing and incoming
+ * animations overlap and cross-dissolve at every scene boundary.
  */
 function AnimationRoot({ scenes }: AnimationProps) {
 	const compiledScenes = React.useMemo(() => {
@@ -111,15 +161,25 @@ function AnimationRoot({ scenes }: AnimationProps) {
 
 	return (
 		<AbsoluteFill style={{ backgroundColor: "transparent" }}>
-			{compiledScenes.map((scene) => {
-				const Comp = scene.Component;
+			{compiledScenes.map((scene, i) => {
+				const isFirst = i === 0;
+				const isLast = i === compiledScenes.length - 1;
+				// Extend the sequence so the outgoing animation can fade out
+				// while the next scene's sequence has already started.
+				const extension = isLast ? 0 : CROSSFADE_FRAMES;
 				return (
 					<Sequence
 						key={scene.sceneId}
 						from={scene.startFrame}
-						durationInFrames={scene.durationFrames}
+						durationInFrames={scene.durationFrames + extension}
 					>
-						<Comp scene={scene.direction} />
+						<FadingScene
+							Component={scene.Component}
+							direction={scene.direction}
+							sceneDuration={scene.durationFrames}
+							isFirst={isFirst}
+							isLast={isLast}
+						/>
 					</Sequence>
 				);
 			})}

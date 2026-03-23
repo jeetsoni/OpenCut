@@ -7,6 +7,7 @@
 
 import { generateText, stepCountIs } from "ai";
 import { buildModel } from "@/lib/ai/provider";
+import { tracedGenerateText } from "@/lib/ai/tracing";
 import { applyEdit, createCodeEditorTools } from "@/lib/ai/tools/code-editor";
 import type { PlannedScene } from "@/lib/scene-planner/schema";
 import { captureSceneFrames } from "./capture-frames";
@@ -94,6 +95,7 @@ These rules apply to STATIC layout only. Animated elements (using interpolate/sp
 3. Inline styles only — no CSS imports, no Tailwind
 4. Keep code under 300 lines
 5. Return ONLY the code — no markdown fences, no explanation
+6. ALWAYS add a global scene entry fade: compute \`const sceneEnterOpacity = interpolate(frame, [0, 8], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });\` and apply \`opacity: sceneEnterOpacity\` to the outermost content div. This prevents elements from popping in cold on scene entry. Do NOT add a fade-out — the overlay handles scene exit transitions.
 
 ## Component Structure
 function Main({ scene }) {
@@ -101,6 +103,9 @@ function Main({ scene }) {
   const { fps } = useVideoConfig();
   const CANVAS_TOP = 80;
   const CANVAS_H = 1080;
+
+  // Global scene entry fade — prevents cold pop-in (rule 6)
+  const sceneEnterOpacity = interpolate(frame, [0, 8], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
 
   const sfxElements = [];
   for (const beat of scene.animationDirection.beats) {
@@ -122,7 +127,7 @@ function Main({ scene }) {
           <Audio src={staticFile("sfx-sound/" + s.file)} volume={s.volume} playbackRate={s.rate} />
         </Sequence>
       ))}
-      <div style={{ position:"absolute", top:CANVAS_TOP, left:44, right:44, height:CANVAS_H, display:"flex", flexDirection:"column", boxSizing:"border-box" }}>
+      <div style={{ position:"absolute", top:CANVAS_TOP, left:44, right:44, height:CANVAS_H, display:"flex", flexDirection:"column", boxSizing:"border-box", opacity: sceneEnterOpacity }}>
         {/* FILL THIS SPACE — spread content across full 1080px height */}
       </div>
     </AbsoluteFill>
@@ -217,7 +222,7 @@ Start by calling read_code to see the current animation, then use edit_code to m
 
 	onProgress?.({ phase: "generating", message: `Tweaking "${scene.name}"...` });
 
-	await generateText({
+	await tracedGenerateText({
 		model,
 		system: SCENE_CODE_TWEAK_SYSTEM_PROMPT,
 		prompt: userPrompt,
@@ -227,6 +232,10 @@ Start by calling read_code to see the current animation, then use edit_code to m
 			() => currentCode,
 			(c) => { currentCode = c; },
 		),
+		langfuse: {
+			name: "tweak-scene-code",
+			metadata: { sceneName: scene.name, sceneType: scene.type },
+		},
 	});
 
 	// Validate the final code still has Main
@@ -250,7 +259,7 @@ async function reviewSceneCode(
 	const model = buildModel({ gemini: "gemini-2.5-pro-preview-06-05" });
 	let currentCode = code;
 
-	await generateText({
+	await tracedGenerateText({
 		model,
 		system: SCENE_CODE_REVIEW_SYSTEM_PROMPT,
 		prompt: `Review the animation code for scene "${sceneName}" and fix any layout issues you find. Start by calling read_code.`,
@@ -260,6 +269,10 @@ async function reviewSceneCode(
 			() => currentCode,
 			(c) => { currentCode = c; },
 		),
+		langfuse: {
+			name: "review-scene-code",
+			metadata: { sceneName },
+		},
 	});
 
 	// If the review broke the component, return the original
@@ -292,7 +305,7 @@ async function fixWithVisionFeedback(
 	const model = buildModel({ gemini: "gemini-2.5-pro-preview-06-05" });
 	let currentCode = code;
 
-	await generateText({
+	await tracedGenerateText({
 		model,
 		system: SCENE_CODE_VISION_FIX_SYSTEM_PROMPT,
 		prompt: `Fix these visual bugs found in scene "${sceneName}" by reviewing actual screenshots:\n\n${issues}\n\nStart by calling read_code, then make surgical edits for each bug.`,
@@ -302,6 +315,10 @@ async function fixWithVisionFeedback(
 			() => currentCode,
 			(c) => { currentCode = c; },
 		),
+		langfuse: {
+			name: "vision-fix-scene-code",
+			metadata: { sceneName },
+		},
 	});
 
 	if (!currentCode.includes("Main")) return code;
@@ -336,11 +353,15 @@ ${sceneJson}`;
 
 	onProgress?.({ phase: "generating", message: `AI is coding scene "${scene.name}"...` });
 
-	const { text } = await generateText({
+	const { text } = await tracedGenerateText({
 		model,
 		system: SCENE_CODE_SYSTEM_PROMPT,
 		prompt: userPrompt,
 		temperature: 0.3,
+		langfuse: {
+			name: "generate-scene-code",
+			metadata: { sceneName: scene.name, sceneType: scene.type },
+		},
 	});
 
 	if (!text) throw new Error("Code generator returned empty output.");

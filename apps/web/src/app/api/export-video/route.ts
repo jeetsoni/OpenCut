@@ -262,20 +262,73 @@ for (const scene of scenes) {
 // --- Render API for Puppeteer ---
 const root = ReactDOM.createRoot(document.getElementById('root'));
 
+// Cross-dissolve duration in seconds — must match CROSSFADE_MS in animation-overlay.tsx
+const CROSSFADE_DURATION = 0.4;
+
 window.__renderFrame = function(time) {
-  const scene = compiledScenes.find(s => time >= s.startTime && time < s.endTime);
-  if (!scene) {
+  const currentScene = compiledScenes.find(s => time >= s.startTime && time < s.endTime);
+  const outgoingScene = compiledScenes.find(
+    s => s.endTime <= time && time < s.endTime + CROSSFADE_DURATION
+  );
+
+  if (!currentScene && !outgoingScene) {
     root.render(null);
     return false;
   }
-  const frame = Math.floor((time - scene.startTime) * _fps);
+
+  const elements = [];
+
+  if (outgoingScene) {
+    // Use the last valid frame of the outgoing scene
+    const lastFrame = Math.max(
+      0,
+      Math.ceil((outgoingScene.endTime - outgoingScene.startTime) * _fps) - 1
+    );
+    // If there's a current scene, draw outgoing at full opacity (current will cover it
+    // progressively via source-over). If no current scene, fade to transparent.
+    const outOpacity = currentScene
+      ? 1
+      : 1 - Math.min(1, (time - outgoingScene.endTime) / CROSSFADE_DURATION);
+
+    elements.push(
+      React.createElement('div', {
+        key: 'out',
+        style: { position: 'absolute', inset: 0, opacity: outOpacity }
+      },
+        React.createElement(FrameContext.Provider,
+          { value: { frame: lastFrame, fps: _fps } },
+          React.createElement(outgoingScene.Component, { scene: outgoingScene.direction })
+        )
+      )
+    );
+  }
+
+  if (currentScene) {
+    const frame = Math.floor((time - currentScene.startTime) * _fps);
+    // Fade in over outgoing — source-over: result = incoming*t + outgoing*(1-t)
+    const inOpacity = outgoingScene
+      ? Math.min(1, (time - outgoingScene.endTime) / CROSSFADE_DURATION)
+      : 1;
+
+    elements.push(
+      React.createElement('div', {
+        key: 'in',
+        style: { position: 'absolute', inset: 0, opacity: inOpacity }
+      },
+        React.createElement(FrameContext.Provider,
+          { value: { frame, fps: _fps } },
+          React.createElement(currentScene.Component, { scene: currentScene.direction })
+        )
+      )
+    );
+  }
+
   return new Promise((resolve) => {
     ReactDOM.flushSync(() => {
       root.render(
-        React.createElement(FrameContext.Provider,
-          { value: { frame, fps: _fps } },
-          React.createElement(scene.Component, { scene: scene.direction })
-        )
+        React.createElement('div', {
+          style: { position: 'relative', width: '100%', height: '100%' }
+        }, ...elements)
       );
     });
     requestAnimationFrame(() => resolve(true));
@@ -555,8 +608,10 @@ __define("scheduler", function(module, exports) {
 		for (let i = 0; i < totalFrames; i++) {
 			const time = i / fps;
 
-			const hasScene = scenes.some(
-				(s) => time >= s.startTime && time < s.endTime,
+			// Include the crossfade tail (0.4s after each scene ends) so outgoing scenes
+		// can fade out smoothly rather than cutting off at the exact boundary frame.
+		const hasScene = scenes.some(
+				(s) => time >= s.startTime && time < s.endTime + 0.4,
 			);
 
 			if (hasScene) {
