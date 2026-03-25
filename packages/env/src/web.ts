@@ -31,7 +31,7 @@ const webEnvSchema = z.object({
 	// Langfuse observability (optional — app works without these)
 	LANGFUSE_SECRET_KEY: z.string().optional(),
 	LANGFUSE_PUBLIC_KEY: z.string().optional(),
-	LANGFUSE_BASE_URL: z.url().optional(),
+	LANGFUSE_BASEURL: z.url().optional(),
 });
 
 export type WebEnv = z.infer<typeof webEnvSchema>;

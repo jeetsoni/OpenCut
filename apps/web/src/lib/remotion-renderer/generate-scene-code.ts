@@ -372,23 +372,23 @@ ${sceneJson}`;
 	onProgress?.({ phase: "generating", message: `Reviewing layout for "${scene.name}"...` });
 	code = await reviewSceneCode(code, scene.name);
 
-	// Option C: vision-based review — capture actual rendered frames and feed to the model
-	try {
-		onProgress?.({ phase: "generating", message: `Visual review for "${scene.name}"...` });
-		const frames = await captureSceneFrames(code, scene);
-		if (frames.length > 0) {
-			const issues = await visionReviewFrames(frames, scene.name);
-			const hasIssues = !issues.toLowerCase().includes("no visual issues");
-			if (hasIssues) {
-				console.log(`[VisionReview] Scene "${scene.name}" issues found:\n${issues}`);
-				onProgress?.({ phase: "generating", message: `Fixing visual issues for "${scene.name}"...` });
-				code = await fixWithVisionFeedback(code, issues, scene.name);
-			}
-		}
-	} catch (err) {
-		// Vision review is best-effort — never fail the overall pipeline
-		console.warn(`[VisionReview] Skipped for "${scene.name}":`, err);
-	}
+	// Option C: vision-based review — disabled
+	// try {
+	// 	onProgress?.({ phase: "generating", message: `Visual review for "${scene.name}"...` });
+	// 	const frames = await captureSceneFrames(code, scene);
+	// 	if (frames.length > 0) {
+	// 		const issues = await visionReviewFrames(frames, scene.name);
+	// 		const hasIssues = !issues.toLowerCase().includes("no visual issues");
+	// 		if (hasIssues) {
+	// 			console.log(`[VisionReview] Scene "${scene.name}" issues found:\n${issues}`);
+	// 			onProgress?.({ phase: "generating", message: `Fixing visual issues for "${scene.name}"...` });
+	// 			code = await fixWithVisionFeedback(code, issues, scene.name);
+	// 		}
+	// 	}
+	// } catch (err) {
+	// 	// Vision review is best-effort — never fail the overall pipeline
+	// 	console.warn(`[VisionReview] Skipped for "${scene.name}":`, err);
+	// }
 
 	onProgress?.({ phase: "done", message: `Code ready for "${scene.name}"` });
 
