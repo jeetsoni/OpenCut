@@ -37,7 +37,7 @@ export function detectSilence({
 } & SilenceDetectionOptions): SilenceDetectionResult {
 	const durationInSeconds = samples.length / sampleRate;
 	// Convert dB threshold to linear amplitude
-	const threshold = Math.pow(10, noiseThresholdInDecibels / 20);
+	const threshold = 10 ** (noiseThresholdInDecibels / 20);
 
 	// Analyse in small windows to avoid per-sample noise
 	const windowSize = Math.floor(sampleRate * 0.01); // 10ms windows

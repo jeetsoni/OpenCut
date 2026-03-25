@@ -13,7 +13,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, useCallback, Component as ReactComponent } from "react";
-import React from "react";
+import type React from "react";
 import { EditorCore } from "@/core";
 import { useEditor } from "@/hooks/use-editor";
 import { useSceneStore } from "@/stores/scene-store";

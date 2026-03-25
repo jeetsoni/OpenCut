@@ -17,7 +17,7 @@
  * Response: SSE progress events followed by binary MP4 data.
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";

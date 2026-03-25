@@ -1169,7 +1169,8 @@ export function useEditorActions() {
 	useActionHandler(
 		"tweak-scene-animation",
 		(args) => {
-			const { sceneId, tweakPrompt } = (args as { sceneId?: number; tweakPrompt?: string }) ?? {};
+			const { sceneId, tweakPrompt, images: manualImages } =
+				(args as { sceneId?: number; tweakPrompt?: string; images?: string[] }) ?? {};
 			if (sceneId == null || !tweakPrompt?.trim()) {
 				toast.error("Scene and tweak instructions required");
 				return;
@@ -1212,6 +1213,7 @@ export function useEditorActions() {
 						existingCode: codeResult.code,
 						tweakPrompt: tweakPrompt.trim(),
 						scene: direction,
+						images: manualImages && manualImages.length > 0 ? manualImages : undefined,
 						onProgress: (p) => toast.loading(p.message, { id: toastId }),
 					});
 

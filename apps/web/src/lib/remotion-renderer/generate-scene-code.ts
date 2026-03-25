@@ -197,16 +197,21 @@ const MAX_TWEAK_STEPS = 10;
 /**
  * Tweak existing Remotion code using an agentic tool-based approach.
  * The AI reads the code, then makes surgical edits via string replacement.
+ * Optionally accepts base64 PNG screenshots (no data-URL prefix) to give the
+ * model visual context of how the animation currently looks.
  */
 export async function tweakSceneRemotionCode({
 	existingCode,
 	tweakPrompt,
 	scene,
+	images,
 	onProgress,
 }: {
 	existingCode: string;
 	tweakPrompt: string;
 	scene: PlannedScene;
+	/** Optional base64 PNG screenshots (without data:image/png;base64, prefix) */
+	images?: string[];
 	onProgress?: (progress: SceneCodeGenProgress) => void;
 }): Promise<string> {
 	onProgress?.({ phase: "preparing", message: `Preparing tweak for "${scene.name}"...` });
@@ -214,18 +219,37 @@ export async function tweakSceneRemotionCode({
 	const model = buildModel({ gemini: "gemini-2.5-pro-preview-06-05" });
 	let currentCode = existingCode;
 
-	const userPrompt = `The user wants to tweak the animation for scene "${scene.name}" (${scene.type}, ${scene.startTime.toFixed(1)}s–${scene.endTime.toFixed(1)}s).
+	const textPrompt = `The user wants to tweak the animation for scene "${scene.name}" (${scene.type}, ${scene.startTime.toFixed(1)}s–${scene.endTime.toFixed(1)}s).
 
 User's request: ${tweakPrompt}
 
 Start by calling read_code to see the current animation, then use edit_code to make the minimal changes needed.`;
+
+	// Build message content — include screenshots if provided so the model can
+	// see how the animation currently looks before editing.
+	type ContentPart =
+		| { type: "text"; text: string }
+		| { type: "image"; image: string; mimeType: "image/png" };
+
+	const contentParts: ContentPart[] = [{ type: "text", text: textPrompt }];
+	if (images && images.length > 0) {
+		for (const img of images) {
+			contentParts.push({ type: "image", image: img, mimeType: "image/png" });
+		}
+	}
+
+	const messages =
+		contentParts.length === 1
+			? undefined
+			: [{ role: "user" as const, content: contentParts }];
+	const prompt = messages ? undefined : textPrompt;
 
 	onProgress?.({ phase: "generating", message: `Tweaking "${scene.name}"...` });
 
 	await tracedGenerateText({
 		model,
 		system: SCENE_CODE_TWEAK_SYSTEM_PROMPT,
-		prompt: userPrompt,
+		...(messages ? { messages } : { prompt }),
 		temperature: 0.1,
 		stopWhen: stepCountIs(MAX_TWEAK_STEPS),
 		tools: createCodeEditorTools(
@@ -234,7 +258,7 @@ Start by calling read_code to see the current animation, then use edit_code to m
 		),
 		langfuse: {
 			name: "tweak-scene-code",
-			metadata: { sceneName: scene.name, sceneType: scene.type },
+			metadata: { sceneName: scene.name, sceneType: scene.type, hasImages: (images?.length ?? 0) > 0 },
 		},
 	});
 

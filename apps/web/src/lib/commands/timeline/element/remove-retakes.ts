@@ -104,7 +104,7 @@ export class RemoveRetakesCommand extends Command {
 			byMedia.set(el.mediaId, group);
 		}
 
-		let updatedTracks = [...tracks.map((t) => ({ ...t, elements: [...t.elements] }))];
+		const updatedTracks = [...tracks.map((t) => ({ ...t, elements: [...t.elements] }))];
 
 		for (const [mediaId, group] of byMedia) {
 			// Decode audio once for this source

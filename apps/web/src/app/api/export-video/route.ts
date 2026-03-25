@@ -30,7 +30,7 @@
  * }
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
@@ -819,7 +819,7 @@ function compositeWithFFmpeg({
 		const pipY = height - 150 - pipH; // bottom:150 means Y = height - 150 - pipH
 		const borderSize = 5;
 
-		let filterParts: string[] = [];
+		const filterParts: string[] = [];
 		let currentBase = "[0:v]";
 
 		// Step 1: Overlay animation frames on base video

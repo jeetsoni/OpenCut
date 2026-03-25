@@ -29,6 +29,8 @@ interface SceneState {
 	boundaries: SceneBoundaries | null;
 	/** Currently selected scene id (shown in inspector) */
 	selectedSceneId: number | null;
+	/** When set, SceneSection auto-opens its tweak panel for this scene id */
+	tweakOpenSceneId: number | null;
 	/** Per-scene status cache */
 	sceneStatuses: Record<number, SceneStatus>;
 	/** Maps timeline element IDs to scene boundary IDs */
@@ -42,6 +44,8 @@ interface SceneState {
 	setBoundaries: (projectId: string, boundaries: SceneBoundaries) => Promise<void>;
 	/** Select a scene (opens inspector) */
 	selectScene: (sceneId: number | null) => void;
+	/** Signal SceneSection to auto-open its tweak panel */
+	setTweakOpenSceneId: (sceneId: number | null) => void;
 	/** Refresh a single scene's status from IndexedDB */
 	refreshScene: (projectId: string, sceneId: number) => Promise<void>;
 	/** Set a runtime animation error for a scene */
@@ -57,6 +61,7 @@ interface SceneState {
 export const useSceneStore = create<SceneState>()((set, get) => ({
 	boundaries: null,
 	selectedSceneId: null,
+	tweakOpenSceneId: null,
 	sceneStatuses: {},
 	elementSceneMap: {},
 	loading: false,
@@ -117,6 +122,8 @@ export const useSceneStore = create<SceneState>()((set, get) => ({
 	},
 
 	selectScene: (sceneId) => set({ selectedSceneId: sceneId }),
+
+	setTweakOpenSceneId: (sceneId) => set({ tweakOpenSceneId: sceneId }),
 
 	setElementSceneMap: (map) => set({ elementSceneMap: map }),
 

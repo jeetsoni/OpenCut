@@ -52,6 +52,7 @@ import {
 	Exchange01Icon,
 	KeyframeIcon,
 	MagicWand05Icon,
+	PencilEdit01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { uppercase } from "@/utils/string";
@@ -60,6 +61,7 @@ import type { SelectedKeyframeRef, ElementKeyframe } from "@/types/animation";
 import { cn } from "@/utils/ui";
 import { Button } from "@/components/ui/button";
 import { usePropertiesStore } from "@/stores/properties-store";
+import { useSceneStore } from "@/stores/scene-store";
 
 const KEYFRAME_INDICATOR_MIN_WIDTH_PX = 40;
 const ELEMENT_RING_WIDTH_PX = 1.5;
@@ -198,6 +200,10 @@ export function TimelineElement({
 	const editor = useEditor();
 	const { selectedElements } = useElementSelection();
 	const { requestRevealMedia } = useAssetsPanelStore();
+	const elementSceneMap = useSceneStore((s) => s.elementSceneMap);
+	const sceneStatuses = useSceneStore((s) => s.sceneStatuses);
+	const selectScene = useSceneStore((s) => s.selectScene);
+	const setTweakOpenSceneId = useSceneStore((s) => s.setTweakOpenSceneId);
 
 	let mediaAsset: MediaAsset | null = null;
 
@@ -371,6 +377,28 @@ export function TimelineElement({
 						</ContextMenuItem>
 					</>
 				)}
+				{/* Tweak Animation — shown when the element belongs to a scene with animation */}
+				{(() => {
+					const sceneId = elementSceneMap[element.id];
+					if (sceneId == null) return null;
+					const status = sceneStatuses[sceneId];
+					if (!status?.hasAnimation) return null;
+					return (
+						<>
+							<ContextMenuSeparator />
+							<ContextMenuItem
+								icon={<HugeiconsIcon icon={PencilEdit01Icon} />}
+								onClick={(event: React.MouseEvent) => {
+									event.stopPropagation();
+									selectScene(sceneId);
+									setTweakOpenSceneId(sceneId);
+								}}
+							>
+								Tweak Animation
+							</ContextMenuItem>
+						</>
+					);
+				})()}
 				<ContextMenuSeparator />
 				<DeleteMenuItem
 					isMultipleSelected={selectedElements.length > 1}

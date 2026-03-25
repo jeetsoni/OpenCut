@@ -49,7 +49,7 @@ export class RemoveSilenceCommand extends Command {
 		this.savedState = tracks;
 		this.previousSelection = editor.selection.getSelectedElements();
 
-		let updatedTracks = [...tracks.map((t) => ({ ...t, elements: [...t.elements] }))];
+		const updatedTracks = [...tracks.map((t) => ({ ...t, elements: [...t.elements] }))];
 
 		for (const { trackId, elementId } of this.elements) {
 			const trackIndex = updatedTracks.findIndex((t) => t.id === trackId);

@@ -109,3 +109,73 @@ export async function captureSceneFrames(
 
 	return frames;
 }
+
+/**
+ * Captures a single PNG frame at a specific absolute playback time.
+ * Returns a base64 PNG string (without the data:image/png;base64, prefix)
+ * or null on any failure, so callers can degrade gracefully.
+ */
+export async function captureFrameAtTime(
+	code: string,
+	scene: PlannedScene,
+	absoluteTimeSeconds: number,
+): Promise<string | null> {
+	try {
+		const compiled = compileForEditorOverlay(code);
+		if (!compiled.Component) return null;
+
+		const Component = compiled.Component as React.FC<{ scene: PlannedScene }>;
+		const fps = 30;
+		const relFrame = Math.round((absoluteTimeSeconds - scene.startTime) * fps);
+		const frame = Math.max(0, Math.min(relFrame, scene.durationFrames - 1));
+
+		const container = document.createElement("div");
+		container.style.cssText = `
+			position: fixed;
+			left: -${COMP_WIDTH + 200}px;
+			top: 0;
+			width: ${COMP_WIDTH}px;
+			height: 1920px;
+			overflow: hidden;
+			background: #111318;
+			z-index: -9999;
+		`;
+		document.body.appendChild(container);
+		const root = createRoot(container);
+		const { default: html2canvasFn } = await import("html2canvas");
+
+		try {
+			flushSync(() => {
+				root.render(
+					React.createElement(
+						EditorFrameContext.Provider,
+						{ value: { frame, fps } },
+						React.createElement(Component, { scene }),
+					),
+				);
+			});
+
+			await new Promise<void>((r) => setTimeout(r, 60));
+
+			const captured = await html2canvasFn(container, {
+				x: 0,
+				y: CANVAS_TOP,
+				width: COMP_WIDTH,
+				height: CANVAS_H,
+				scale: CAPTURE_SCALE,
+				backgroundColor: "#111318",
+				logging: false,
+				useCORS: true,
+			});
+
+			const dataUrl = captured.toDataURL("image/png");
+			const base64 = dataUrl.split(",")[1];
+			return base64 ?? null;
+		} finally {
+			try { root.unmount(); } catch { /* ignore */ }
+			container.remove();
+		}
+	} catch {
+		return null;
+	}
+}
