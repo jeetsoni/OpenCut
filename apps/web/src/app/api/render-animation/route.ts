@@ -62,6 +62,7 @@ export async function POST(request: NextRequest) {
 			width = 1080,
 			height = 1920,
 			quality = "high",
+			faceVideoPath,
 		} = body;
 
 		if (!scenes.length || !duration) {
@@ -123,7 +124,11 @@ export async function POST(request: NextRequest) {
 						stage: "Setting up composition...",
 					});
 
-					const inputProps = { scenes: scenesWithFrames };
+					const inputProps = {
+					scenes: scenesWithFrames,
+					// faceVideoPath is already an HTTP URL built by the client
+					...(faceVideoPath ? { faceVideoUrl: faceVideoPath } : {}),
+				};
 
 					const composition = await selectComposition({
 						serveUrl: bundleLocation,

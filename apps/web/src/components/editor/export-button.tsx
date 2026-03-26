@@ -111,6 +111,9 @@ function ExportPopover({
 	const [isExportingFace, setIsExportingFace] = useState(false);
 	const [faceExportProgress, setFaceExportProgress] = useState(0);
 	const [faceExportError, setFaceExportError] = useState<string | null>(null);
+	const [isExportingPip, setIsExportingPip] = useState(false);
+	const [pipExportProgress, setPipExportProgress] = useState(0);
+	const [pipExportError, setPipExportError] = useState<string | null>(null);
 
 	const overlays = usePreviewStore((s) => s.overlays);
 	const sceneStatuses = useSceneStore((s) => s.sceneStatuses);
@@ -183,6 +186,42 @@ function ExportPopover({
 		} finally {
 			setIsExportingFace(false);
 			setFaceExportProgress(0);
+		}
+	};
+
+	const handleExportPip = async () => {
+		if (!activeProject) return;
+		setPipExportError(null);
+		setIsExportingPip(true);
+		setPipExportProgress(0);
+		try {
+			const { exportPipVideo } = await import("@/services/renderer/server-export");
+			const { downloadBuffer } = await import("@/lib/export");
+			const result = await exportPipVideo({
+				projectId: activeProject.metadata.id,
+				tracks: editor.timeline.getTracks(),
+				mediaAssets: editor.media.getAssets(),
+				fps: activeProject.settings.fps,
+				duration: editor.timeline.getTotalDuration(),
+				width: activeProject.settings.canvasSize.width,
+				height: activeProject.settings.canvasSize.height,
+				quality,
+				onProgress: setPipExportProgress,
+			});
+			if (result.success && result.buffer) {
+				downloadBuffer({
+					buffer: result.buffer,
+					filename: `${activeProject.metadata.name}-pip.mp4`,
+					mimeType: "video/mp4",
+				});
+			} else {
+				setPipExportError(result.error || "PIP export failed");
+			}
+		} catch (err) {
+			setPipExportError(err instanceof Error ? err.message : "PIP export failed");
+		} finally {
+			setIsExportingPip(false);
+			setPipExportProgress(0);
 		}
 	};
 
@@ -381,7 +420,33 @@ function ExportPopover({
 											)}
 										</>
 									)}
-									<Button onClick={handleExport} className="w-full gap-2" disabled={isExportingAnimation || isExportingFace}>
+									{hasFaceVideo && hasAnimations && (
+										<>
+											{pipExportError && (
+												<p className="text-xs text-destructive">{pipExportError}</p>
+											)}
+											{isExportingPip ? (
+												<div className="flex flex-col gap-1.5">
+													<div className="flex items-center justify-between">
+														<span className="text-xs text-muted-foreground">Exporting PIP video…</span>
+														<span className="text-xs text-muted-foreground">{Math.round(pipExportProgress * 100)}%</span>
+													</div>
+													<Progress value={pipExportProgress * 100} className="w-full" />
+												</div>
+											) : (
+												<Button
+													variant="outline"
+													onClick={handleExportPip}
+													className="w-full gap-2"
+													disabled={isExporting || isExportingAnimation || isExportingFace}
+												>
+													<Download className="size-4" />
+													Export PIP Video
+												</Button>
+											)}
+										</>
+									)}
+									<Button onClick={handleExport} className="w-full gap-2" disabled={isExportingAnimation || isExportingFace || isExportingPip}>
 										<Download className="size-4" />
 										Export
 									</Button>

@@ -590,3 +590,183 @@ function parseSSELines(
 	}
 	return error;
 }
+
+/**
+ * Export a PIP video: face cam composited inside the Remotion animation.
+ *
+ * Flow:
+ * 1. Collect + upload all face video segments (same as exportFaceVideo)
+ * 2. Server concatenates them into a single face MP4 and returns its path
+ * 3. Pass that path to /api/render-animation — Remotion renders the face
+ *    video as a native <Video> PIP overlay inside the animation composition
+ */
+export async function exportPipVideo({
+	projectId,
+	tracks,
+	mediaAssets,
+	fps,
+	duration,
+	width,
+	height,
+	quality,
+	onProgress,
+}: {
+	projectId: string;
+	tracks: import("@/types/timeline").TimelineTrack[];
+	mediaAssets: MediaAsset[];
+	fps: number;
+	duration: number;
+	width: number;
+	height: number;
+	quality: ExportQuality;
+	onProgress?: (progress: number) => void;
+}): Promise<{ success: boolean; buffer?: ArrayBuffer; error?: string }> {
+	const mediaMap = new Map(mediaAssets.map((a) => [a.id, a]));
+
+	// Collect all video segments from the timeline
+	const segments: { file: File; trimStart: number; duration: number; timelineStart: number }[] = [];
+	for (const track of tracks) {
+		if (track.type !== "video") continue;
+		for (const element of track.elements) {
+			if (element.type !== "video") continue;
+			const asset = mediaMap.get((element as import("@/types/timeline").VideoElement).mediaId);
+			if (!asset?.file) continue;
+			segments.push({
+				file: asset.file as File,
+				trimStart: element.trimStart,
+				duration: element.duration,
+				timelineStart: element.startTime,
+			});
+		}
+	}
+
+	const validSegments = segments.filter((s) => s.duration >= 0.01);
+	if (validSegments.length === 0) {
+		return { success: false, error: "No face cam video clips found on the timeline" };
+	}
+
+	validSegments.sort((a, b) => a.timelineStart - b.timelineStart);
+
+	// Step 1: Upload face video segments and get a single concatenated server path
+	onProgress?.(0.05);
+	const uploaded: MainVideoSegment[] = [];
+	for (const seg of validSegments) {
+		const serverPath = await uploadBlob({ blob: seg.file, filename: `pip-face-${Date.now()}.mp4` });
+		uploaded.push({ serverPath, trimStart: seg.trimStart, duration: seg.duration, timelineStart: seg.timelineStart });
+	}
+
+	// Step 2: Ask the server to concatenate the face segments into one file and return its path
+	onProgress?.(0.15);
+	const concatResponse = await fetch("/api/export-video/concat-face", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ segments: uploaded }),
+	});
+
+	if (!concatResponse.ok) {
+		const err = await concatResponse.json().catch(() => ({ error: concatResponse.statusText }));
+		return { success: false, error: err.error || "Face video concat failed" };
+	}
+
+	const { faceVideoPath, faceVideoFilename } = await concatResponse.json();
+
+	// Build an HTTP URL so Remotion's headless Chromium can load the video
+	// (file:// URLs are blocked by Chromium's URL safety check)
+	const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3001";
+	const faceVideoUrl = `${baseUrl}/api/export-video/serve-temp?file=${faceVideoFilename}`;
+
+	// Step 3: Gather animation scenes
+	const animationScenes = await gatherAnimationScenes({ projectId });
+	if (animationScenes.length === 0) {
+		return { success: false, error: "No animation scenes found for this project" };
+	}
+
+	// Step 4: Render via Remotion with the face video path injected as PIP
+	onProgress?.(0.2);
+	const response = await fetch("/api/render-animation", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({
+			scenes: animationScenes,
+			fps,
+			duration,
+			width,
+			height,
+			quality,
+			faceVideoPath: faceVideoUrl,
+		}),
+	});
+
+	if (!response.ok) {
+		const err = await response.json().catch(() => ({ error: response.statusText }));
+		return { success: false, error: err.error || "PIP render failed" };
+	}
+
+	const reader = response.body?.getReader();
+	if (!reader) return { success: false, error: "No response stream" };
+
+	// Parse SSE + binary streaming protocol (same as other export functions)
+	const chunks: Uint8Array[] = [];
+	const decoder = new TextDecoder();
+	const encoder = new TextEncoder();
+	const BOUNDARY = "\n---BINARY_START---\n";
+	const boundaryBytes = encoder.encode(BOUNDARY);
+	let binaryStarted = false;
+	let pendingBytes: Uint8Array[] = [];
+	let serverError: string | null = null;
+
+	function findBytes(haystack: Uint8Array, needle: Uint8Array): number {
+		outer: for (let i = 0; i <= haystack.length - needle.length; i++) {
+			for (let j = 0; j < needle.length; j++) {
+				if (haystack[i + j] !== needle[j]) continue outer;
+			}
+			return i;
+		}
+		return -1;
+	}
+
+	function concatBytes(arrays: Uint8Array[]): Uint8Array {
+		const total = arrays.reduce((s, a) => s + a.length, 0);
+		const result = new Uint8Array(total);
+		let off = 0;
+		for (const a of arrays) { result.set(a, off); off += a.length; }
+		return result;
+	}
+
+	while (true) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		if (binaryStarted) { chunks.push(value); continue; }
+		pendingBytes.push(value);
+		const accumulated = concatBytes(pendingBytes);
+		const boundaryIdx = findBytes(accumulated, boundaryBytes);
+		if (boundaryIdx !== -1) {
+			const sseText = decoder.decode(accumulated.slice(0, boundaryIdx));
+			const err = parseSSELines(sseText, onProgress ? (p) => onProgress(0.2 + p * 0.8) : undefined);
+			if (err) serverError = err;
+			const afterBoundary = accumulated.slice(boundaryIdx + boundaryBytes.length);
+			if (afterBoundary.length > 0) chunks.push(afterBoundary);
+			binaryStarted = true;
+			pendingBytes = [];
+		} else {
+			const text = decoder.decode(accumulated, { stream: true });
+			const lastNewline = text.lastIndexOf("\n");
+			if (lastNewline !== -1) {
+				const err = parseSSELines(text.substring(0, lastNewline), onProgress ? (p) => onProgress(0.2 + p * 0.8) : undefined);
+				if (err) serverError = err;
+				const parsedByteLen = encoder.encode(text.substring(0, lastNewline + 1)).length;
+				pendingBytes = [accumulated.slice(parsedByteLen)];
+			}
+		}
+	}
+
+	if (serverError) return { success: false, error: serverError };
+	if (chunks.length === 0) return { success: false, error: "No video data received" };
+
+	const totalLength = chunks.reduce((sum, c) => sum + c.length, 0);
+	const buffer = new ArrayBuffer(totalLength);
+	const view = new Uint8Array(buffer);
+	let offset = 0;
+	for (const chunk of chunks) { view.set(chunk, offset); offset += chunk.length; }
+	return { success: true, buffer };
+}

@@ -17,6 +17,7 @@ import {
 	Composition,
 	Sequence,
 	Audio,
+	OffthreadVideo,
 	useCurrentFrame,
 	useVideoConfig,
 	interpolate,
@@ -45,8 +46,21 @@ interface SceneInput {
 	sceneId: number;
 }
 
+// PIP face cam constants — must match animation-overlay.tsx
+const PIP = {
+	left: 40,
+	bottom: 150,
+	width: 440,
+	height: 580,
+	borderRadius: 24,
+	borderWidth: 5,
+	borderColor: "#F5C518",
+} as const;
+
 interface AnimationProps {
 	scenes: SceneInput[];
+	/** Server-accessible URL for the face cam video (optional — PIP mode only) */
+	faceVideoUrl?: string;
 }
 
 /**
@@ -146,7 +160,8 @@ function FadingScene({
  * Non-last scenes are extended by CROSSFADE_FRAMES so outgoing and incoming
  * animations overlap and cross-dissolve at every scene boundary.
  */
-function AnimationRoot({ scenes }: AnimationProps) {
+function AnimationRoot({ scenes, faceVideoUrl }: AnimationProps) {
+	const { width, height } = useVideoConfig();
 	const compiledScenes = React.useMemo(() => {
 		return scenes
 			.map((s) => ({
@@ -164,8 +179,6 @@ function AnimationRoot({ scenes }: AnimationProps) {
 			{compiledScenes.map((scene, i) => {
 				const isFirst = i === 0;
 				const isLast = i === compiledScenes.length - 1;
-				// Extend the sequence so the outgoing animation can fade out
-				// while the next scene's sequence has already started.
 				const extension = isLast ? 0 : CROSSFADE_FRAMES;
 				return (
 					<Sequence
@@ -183,6 +196,30 @@ function AnimationRoot({ scenes }: AnimationProps) {
 					</Sequence>
 				);
 			})}
+
+			{/* PIP face cam — rendered on top of all scenes when faceVideoUrl is provided */}
+			{faceVideoUrl && (
+				<AbsoluteFill style={{ pointerEvents: "none" }}>
+					<div
+						style={{
+							position: "absolute",
+							left: PIP.left,
+							bottom: PIP.bottom,
+							width: PIP.width,
+							height: PIP.height,
+							borderRadius: PIP.borderRadius,
+							border: `${PIP.borderWidth}px solid ${PIP.borderColor}`,
+							overflow: "hidden",
+							boxSizing: "border-box",
+						}}
+					>
+						<OffthreadVideo
+							src={faceVideoUrl}
+							style={{ width: "100%", height: "100%", objectFit: "cover" }}
+						/>
+					</div>
+				</AbsoluteFill>
+			)}
 		</AbsoluteFill>
 	);
 }
@@ -200,7 +237,7 @@ function RemotionRoot() {
 			fps={30}
 			width={1080}
 			height={1920}
-			defaultProps={{ scenes: [] as SceneInput[] }}
+			defaultProps={{ scenes: [] as SceneInput[], faceVideoUrl: undefined }}
 		/>
 	);
 }
