@@ -21,7 +21,16 @@ import {
 	getAIProviderConfig,
 	setAIProviderConfig,
 	type AIProviderType,
+	type AIModelOverrides,
 } from "@/lib/ai-provider";
+
+const FEATURE_LABELS: { key: keyof AIModelOverrides; label: string; hint: string; defaultGemini: string }[] = [
+	{ key: "boundaryDetect", label: "Boundary Detection", hint: "Splits transcript into scenes. Flash is sufficient.", defaultGemini: "gemini-2.5-flash" },
+	{ key: "sceneDirection", label: "Scene Direction", hint: "Generates animation beats and layout per scene. Flash is sufficient.", defaultGemini: "gemini-2.5-flash" },
+	{ key: "codeGen", label: "Code Generation", hint: "Writes the Remotion component. Pro gives better results.", defaultGemini: "gemini-2.5-pro-preview-06-05" },
+	{ key: "codeReview", label: "Layout Review", hint: "Agentic pass that fixes overflow/overlap bugs in generated code. Flash is fine.", defaultGemini: "gemini-2.5-flash" },
+	{ key: "tweak", label: "Tweak", hint: "Surgical edits to existing animations. Pro recommended.", defaultGemini: "gemini-2.5-pro-preview-06-05" },
+];
 
 export function AISettingsDialog({
 	isOpen,
@@ -36,6 +45,9 @@ export function AISettingsDialog({
 	const [baseUrl, setBaseUrl] = useState("");
 	const [groqApiKey, setGroqApiKey] = useState("");
 	const [transcriptionLanguage, setTranscriptionLanguage] = useState("");
+	const [modelOverrides, setModelOverrides] = useState<AIModelOverrides>({});
+	const [skipLayoutReview, setSkipLayoutReview] = useState(false);
+	const [showAdvanced, setShowAdvanced] = useState(false);
 
 	useEffect(() => {
 		if (isOpen) {
@@ -47,6 +59,8 @@ export function AISettingsDialog({
 				setBaseUrl(config.baseUrl ?? "");
 				setGroqApiKey(config.groqApiKey ?? "");
 				setTranscriptionLanguage(config.transcriptionLanguage ?? "");
+				setModelOverrides(config.modelOverrides ?? {});
+				setSkipLayoutReview(config.skipLayoutReview ?? false);
 			}
 		}
 	}, [isOpen]);
@@ -59,8 +73,22 @@ export function AISettingsDialog({
 			baseUrl: baseUrl || undefined,
 			groqApiKey: groqApiKey || undefined,
 			transcriptionLanguage: transcriptionLanguage || undefined,
+			modelOverrides: Object.keys(modelOverrides).length > 0 ? modelOverrides : undefined,
+			skipLayoutReview: skipLayoutReview || undefined,
 		});
 		onOpenChange(false);
+	};
+
+	const setOverride = (key: keyof AIModelOverrides, value: string) => {
+		setModelOverrides((prev) => {
+			const next = { ...prev };
+			if (value) {
+				next[key] = value;
+			} else {
+				delete next[key];
+			}
+			return next;
+		});
 	};
 
 	return (
@@ -69,7 +97,7 @@ export function AISettingsDialog({
 				<DialogHeader>
 					<DialogTitle>AI Settings</DialogTitle>
 				</DialogHeader>
-				<DialogBody className="flex flex-col gap-4">
+				<DialogBody className="flex flex-col gap-4 max-h-[70vh] overflow-y-auto">
 					<p className="text-muted-foreground text-sm">
 						Your keys are stored locally in your browser only.
 					</p>
@@ -140,6 +168,57 @@ export function AISettingsDialog({
 					)}
 
 					<div className="bg-border my-1 h-px" />
+
+				{/* Advanced: per-feature model overrides */}
+				<button
+					type="button"
+					onClick={() => setShowAdvanced((v) => !v)}
+					className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+				>
+					<span>{showAdvanced ? "▾" : "▸"}</span>
+					<span className="font-medium uppercase tracking-wider">Per-feature Model Overrides</span>
+				</button>
+
+				{showAdvanced && (
+					<div className="flex flex-col gap-3 pl-3 border-l border-border">
+						<p className="text-muted-foreground text-xs">
+							Override which model is used for each pipeline step. Leave blank to use the global model above.
+						</p>
+
+						{FEATURE_LABELS.map(({ key, label, hint, defaultGemini }) => (
+							<div key={key} className="flex flex-col gap-1">
+								<Label className="text-xs">{label}</Label>
+								<Input
+									value={modelOverrides[key] ?? ""}
+									onChange={(e) => setOverride(key, e.target.value)}
+									placeholder={`default: ${defaultGemini}`}
+									size="sm"
+								/>
+								<p className="text-muted-foreground text-xs">{hint}</p>
+							</div>
+						))}
+
+						<div className="flex items-start gap-2 pt-1">
+							<input
+								id="skip-review"
+								type="checkbox"
+								checked={skipLayoutReview}
+								onChange={(e) => setSkipLayoutReview(e.target.checked)}
+								className="mt-0.5 accent-primary"
+							/>
+							<div>
+								<label htmlFor="skip-review" className="text-xs font-medium cursor-pointer">
+									Skip layout review pass
+								</label>
+								<p className="text-muted-foreground text-xs mt-0.5">
+									Removes the agentic review step after code generation. Faster, but may produce occasional overflow or positioning bugs.
+								</p>
+							</div>
+						</div>
+					</div>
+				)}
+
+				<div className="bg-border my-1 h-px" />
 
 					<div className="text-muted-foreground text-xs font-medium uppercase tracking-wider">
 						Transcription (Groq Whisper)

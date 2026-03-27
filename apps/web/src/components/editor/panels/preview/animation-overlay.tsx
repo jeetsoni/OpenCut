@@ -321,13 +321,13 @@ export function AnimationOverlay() {
 	const boundaries = useSceneStore((s) => s.boundaries);
 	const sceneStatuses = useSceneStore((s) => s.sceneStatuses);
 
-	// Stable fingerprint — only changes when hasAnimation flags change
+	// Stable fingerprint — changes when animations are added or their code is updated (tweak)
 	const animationFingerprint = useMemo(() => {
 		if (!boundaries) return "";
 		return boundaries.boundaries
 			.map((b) => {
 				const s = sceneStatuses[b.id];
-				return s?.hasAnimation ? `${b.id}:1` : `${b.id}:0`;
+				return s?.hasAnimation ? `${b.id}:${s.animationVersion}` : `${b.id}:0`;
 			})
 			.join(",");
 	}, [boundaries, sceneStatuses]);
@@ -409,6 +409,20 @@ export function AnimationOverlay() {
 
 	const compiledScenesRef = useRef(compiledScenes);
 	compiledScenesRef.current = compiledScenes;
+
+	// When compiledScenes updates (e.g. after a tweak), sync sceneTransition.current
+	// immediately. The RAF loop only fires on scene-boundary crossings so it won't
+	// pick up a recompile that happens while the playhead stays inside the same scene.
+	useEffect(() => {
+		if (compiledScenes.length === 0) return;
+		const time = EditorCore.getInstance().playback.getCurrentTime();
+		const active = compiledScenes.find(
+			(s) => time >= s.startTime && time < s.endTime,
+		);
+		if (active) {
+			setSceneTransition((prev) => ({ ...prev, current: active }));
+		}
+	}, [compiledScenes]);
 
 	useEffect(() => {
 		const editorInstance = EditorCore.getInstance();

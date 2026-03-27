@@ -19,6 +19,8 @@ import { getSceneRemotionCode } from "@/lib/remotion-renderer/scene-code-store";
 export interface SceneStatus {
 	hasDirection: boolean;
 	hasAnimation: boolean;
+	/** Bumped on every code update so AnimationOverlay recompiles after tweaks */
+	animationVersion: number;
 	direction: PlannedScene | null;
 	/** Runtime error from the animation component, if any */
 	animationError: string | null;
@@ -84,6 +86,7 @@ export const useSceneStore = create<SceneState>()((set, get) => ({
 				statuses[b.id] = {
 					hasDirection: Boolean(dir),
 					hasAnimation: Boolean(code),
+					animationVersion: code ? Date.now() : 0,
 					direction: dir,
 					animationError: null,
 				};
@@ -140,6 +143,7 @@ export const useSceneStore = create<SceneState>()((set, get) => ({
 				[sceneId]: {
 					hasDirection: Boolean(dir),
 					hasAnimation: Boolean(code),
+					animationVersion: code ? Date.now() : 0,
 					direction: dir,
 					animationError: null,
 				},

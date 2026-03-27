@@ -8,6 +8,7 @@
 import { generateText, stepCountIs } from "ai";
 import { buildModel } from "@/lib/ai/provider";
 import { tracedGenerateText } from "@/lib/ai/tracing";
+import { getAIProviderConfig } from "@/lib/ai-provider";
 import { applyEdit, createCodeEditorTools } from "@/lib/ai/tools/code-editor";
 import type { PlannedScene } from "@/lib/scene-planner/schema";
 import { captureSceneFrames } from "./capture-frames";
@@ -216,7 +217,7 @@ export async function tweakSceneRemotionCode({
 }): Promise<string> {
 	onProgress?.({ phase: "preparing", message: `Preparing tweak for "${scene.name}"...` });
 
-	const model = buildModel({ gemini: "gemini-2.5-pro-preview-06-05" });
+	const model = buildModel({ gemini: "gemini-2.5-pro-preview-06-05", feature: "tweak" });
 	let currentCode = existingCode;
 
 	const textPrompt = `The user wants to tweak the animation for scene "${scene.name}" (${scene.type}, ${scene.startTime.toFixed(1)}s–${scene.endTime.toFixed(1)}s).
@@ -280,7 +281,7 @@ async function reviewSceneCode(
 	code: string,
 	sceneName: string,
 ): Promise<string> {
-	const model = buildModel({ gemini: "gemini-2.5-pro-preview-06-05" });
+	const model = buildModel({ gemini: "gemini-2.5-flash", feature: "codeReview" });
 	let currentCode = code;
 
 	await tracedGenerateText({
@@ -361,7 +362,8 @@ export async function generateSceneRemotionCode({
 }): Promise<string> {
 	onProgress?.({ phase: "preparing", message: `Preparing scene "${scene.name}"...` });
 
-	const model = buildModel({ gemini: "gemini-2.5-pro-preview-06-05" });
+	const model = buildModel({ gemini: "gemini-2.5-pro-preview-06-05", feature: "codeGen" });
+	const skipReview = getAIProviderConfig()?.skipLayoutReview ?? false;
 	const sceneJson = JSON.stringify(scene, null, 1);
 
 	const userPrompt = `Generate a Remotion component for this single scene. The component receives the scene object as a prop called "scene".
@@ -393,8 +395,10 @@ ${sceneJson}`;
 	let code = extractCode(text);
 	if (!code.includes("Main")) throw new Error("Generated code missing Main component.");
 
-	onProgress?.({ phase: "generating", message: `Reviewing layout for "${scene.name}"...` });
-	code = await reviewSceneCode(code, scene.name);
+	if (!skipReview) {
+		onProgress?.({ phase: "generating", message: `Reviewing layout for "${scene.name}"...` });
+		code = await reviewSceneCode(code, scene.name);
+	}
 
 	// Option C: vision-based review — disabled
 	// try {

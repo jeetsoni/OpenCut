@@ -61,7 +61,7 @@ export async function detectSceneBoundaries({
 }): Promise<SceneBoundaries> {
 	onProgress?.({ phase: "preparing", message: "Preparing transcript..." });
 
-	const model = buildModel({ gemini: "gemini-2.5-flash" });
+	const model = buildModel({ gemini: "gemini-2.5-flash", feature: "boundaryDetect" });
 	const transcriptText = formatTranscript(transcript);
 
 	onProgress?.({ phase: "detecting", message: "AI is detecting scene boundaries..." });

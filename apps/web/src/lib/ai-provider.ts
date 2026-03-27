@@ -13,12 +13,35 @@ const STORAGE_KEY = "opencut:ai-provider";
 
 export type AIProviderType = "openai" | "gemini";
 
+/**
+ * Per-feature model overrides.
+ * Each key maps to the string model ID to use for that pipeline step.
+ * When set, takes precedence over the global `model` field.
+ */
+export interface AIModelOverrides {
+	/** Detect scene boundaries from transcript (simple JSON — Flash is fine) */
+	boundaryDetect?: string;
+	/** Generate per-scene animation direction (creative JSON — Flash is fine) */
+	sceneDirection?: string;
+	/** Generate initial Remotion component code (complex — Pro recommended) */
+	codeGen?: string;
+	/** Agentic layout review pass after code gen (rule-based — Flash is fine) */
+	codeReview?: string;
+	/** Agentic tweak pass for targeted edits (surgical — Pro recommended) */
+	tweak?: string;
+}
+
 export interface AIProviderConfig {
 	provider: AIProviderType;
 	apiKey: string;
 	/** Only used for OpenAI-compatible providers (custom base URL). */
 	baseUrl?: string;
+	/** Global model fallback — used when no per-feature override is set. */
 	model?: string;
+	/** Per-feature model overrides — take precedence over the global model. */
+	modelOverrides?: AIModelOverrides;
+	/** Skip the agentic layout review pass after code generation (faster, less thorough). */
+	skipLayoutReview?: boolean;
 	/** Groq API key for fast cloud transcription (whisper-large-v3). */
 	groqApiKey?: string;
 	/** Language hint for transcription (e.g. "hi" for Hindi). */

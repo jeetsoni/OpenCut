@@ -53,6 +53,7 @@ import {
 	KeyframeIcon,
 	MagicWand05Icon,
 	PencilEdit01Icon,
+	RotateIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { uppercase } from "@/utils/string";
@@ -344,6 +345,12 @@ export function TimelineElement({
 						AI remove retakes
 					</ActionMenuItem>
 				)}
+				<ActionMenuItem
+					action="review-removed-retakes"
+					icon={<HugeiconsIcon icon={RotateIcon} />}
+				>
+					Review removed clips
+				</ActionMenuItem>
 				{canElementBeHidden(element) && (
 					<VisibilityMenuItem
 						element={element}

@@ -117,7 +117,7 @@ export async function generateSceneDirection({
 }): Promise<PlannedScene> {
 	onProgress?.({ phase: "preparing", message: `Preparing scene "${boundary.name}"...` });
 
-	const model = buildModel({ gemini: "gemini-2.5-flash" });
+	const model = buildModel({ gemini: "gemini-2.5-flash", feature: "sceneDirection" });
 
 	// Extract words that fall within this scene's time range
 	const sceneWords = transcript.words.filter(

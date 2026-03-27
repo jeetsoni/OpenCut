@@ -6,10 +6,18 @@ import {
 	transcribeSegments,
 	analyzeRetakes,
 	type RetakeDetectionProgress,
+	type TranscribedSegment,
 } from "@/lib/retake-detection";
 import { decodeAudioToFloat32 } from "@/lib/media/audio";
 import { canElementHaveAudio } from "@/lib/timeline/element-utils";
 import { mediaSupportsAudio } from "@/lib/media/media-utils";
+import { useRetakesStore, type RemovedRetakeSegment } from "@/stores/retakes-store";
+
+function formatTime(seconds: number): string {
+	const m = Math.floor(seconds / 60);
+	const s = Math.floor(seconds % 60);
+	return `${m}:${s.toString().padStart(2, "0")}`;
+}
 
 /**
  * Removes retake/stuttered segments from audio/video elements.
@@ -25,6 +33,8 @@ export class RemoveRetakesCommand extends Command {
 	private onProgress?: (progress: RetakeDetectionProgress) => void;
 	private ready = false;
 	private _computedTracks: TimelineTrack[] | null = null;
+	private _removedSegments: RemovedRetakeSegment[] = [];
+	private _recordId: string | null = null;
 
 	constructor({
 		elements,
@@ -162,6 +172,16 @@ export class RemoveRetakesCommand extends Command {
 				.map((idx) => relevantParts[idx])
 				.filter(Boolean);
 
+			// Track removed segments (indices not in keepIndices)
+			const removedIndices = relevantParts
+				.map((_, idx) => idx)
+				.filter((idx) => !keepIndices.includes(idx));
+
+			const removedPartsWithTranscript = removedIndices.map((idx) => ({
+				segment: relevantParts[idx],
+				transcript: transcribed[idx],
+			}));
+
 			// Apply to every element in this group
 			for (const { trackId, elementId } of group) {
 				const trackIndex = updatedTracks.findIndex((t) => t.id === trackId);
@@ -172,6 +192,30 @@ export class RemoveRetakesCommand extends Command {
 
 				const sourceStart = element.trimStart;
 				const sourceEnd = element.trimStart + element.duration;
+
+				// Record removed segments for this element
+				for (const { segment, transcript } of removedPartsWithTranscript) {
+					const overlapStart = Math.max(segment.startTime, sourceStart);
+					const overlapEnd = Math.min(segment.endTime, sourceEnd);
+					if (overlapStart >= overlapEnd) continue;
+
+					const segDuration = overlapEnd - overlapStart;
+					// Calculate where this segment was on the timeline
+					const timelineOffset = overlapStart - sourceStart;
+					const timelineStart = element.startTime + timelineOffset;
+
+					this._removedSegments.push({
+						id: `removed-${Math.random().toString(36).slice(2, 8)}`,
+						trackId,
+						originalElementId: elementId,
+						sourceStart: overlapStart,
+						sourceEnd: overlapEnd,
+						timelineStart,
+						duration: segDuration,
+						transcript: transcript.text,
+						label: `${formatTime(timelineStart)} – ${formatTime(timelineStart + segDuration)} (${segDuration.toFixed(1)}s)`,
+					});
+				}
 
 				const newElements = track.elements.filter((e) => e.id !== elementId);
 				let cursor = element.startTime;
@@ -215,6 +259,18 @@ export class RemoveRetakesCommand extends Command {
 			this.savedState = editor.timeline.getTracks();
 		}
 		editor.timeline.updateTracks(this._computedTracks);
+
+		// Store removal record for review/restore functionality
+		if (this._removedSegments.length > 0) {
+			this._recordId = `retakes-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+			useRetakesStore.getState().addRemovalRecord({
+				id: this._recordId,
+				timestamp: Date.now(),
+				tracksBefore: this.savedState,
+				tracksAfter: this._computedTracks,
+				removedSegments: this._removedSegments,
+			});
+		}
 	}
 
 	undo(): void {
@@ -225,5 +281,15 @@ export class RemoveRetakesCommand extends Command {
 				elements: this.previousSelection,
 			});
 		}
+	}
+
+	/** Get the record ID for this removal operation */
+	getRecordId(): string | null {
+		return this._recordId;
+	}
+
+	/** Get the removed segments */
+	getRemovedSegments(): RemovedRetakeSegment[] {
+		return this._removedSegments;
 	}
 }

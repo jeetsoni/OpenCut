@@ -154,6 +154,10 @@ export const ACTIONS = {
 		description: "AI-detect and remove retakes from selected elements",
 		category: "editing",
 	},
+	"review-removed-retakes": {
+		description: "Review and restore clips removed by retake detection",
+		category: "editing",
+	},
 	"close-gaps": {
 		description: "Close gaps between elements on all tracks",
 		category: "editing",

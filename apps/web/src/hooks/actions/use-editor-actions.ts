@@ -41,6 +41,7 @@ import {
 } from "@/lib/remotion-renderer/scene-code-store";
 import { toast } from "sonner";
 import { useSceneStore } from "@/stores/scene-store";
+import { invokeAction } from "@/lib/actions";
 
 export function useEditorActions() {
 	const editor = useEditor();
@@ -456,7 +457,14 @@ export function useEditorActions() {
 					},
 				})
 				.then(() => {
-					toast.success("Retakes removed", { id: toastId });
+					toast.success("Retakes removed", {
+						id: toastId,
+						description: "Use Ctrl+Z to undo, or click to review removed clips.",
+						action: {
+							label: "Review",
+							onClick: () => invokeAction("review-removed-retakes"),
+						},
+					});
 				})
 				.catch((error: unknown) => {
 					const message =
@@ -466,6 +474,22 @@ export function useEditorActions() {
 						description: message,
 					});
 				});
+		},
+		undefined,
+	);
+
+	useActionHandler(
+		"review-removed-retakes",
+		() => {
+			const { useRetakesStore } = require("@/stores/retakes-store");
+			const store = useRetakesStore.getState();
+			if (store.removalHistory.length === 0) {
+				toast.info("No removed retakes to review", {
+					description: "Remove retakes first using the AI remove retakes feature.",
+				});
+				return;
+			}
+			store.openReviewDialog();
 		},
 		undefined,
 	);
