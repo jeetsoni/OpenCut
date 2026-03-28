@@ -8,10 +8,12 @@ import { useKeyframeSelection } from "../timeline/element/use-keyframe-selection
 import { getElementsAtTime } from "@/lib/timeline";
 import { getAIProviderConfig } from "@/lib/ai-provider";
 import { generateTranscript } from "@/lib/transcription/generate-transcript";
+import { retranscribeClips } from "@/lib/transcription/retranscribe-clips";
 import {
 	getProjectTranscript,
 	setProjectTranscript,
 } from "@/lib/transcription/transcript-store";
+import type { TimelineElement } from "@/types/timeline";
 import { createTimelineAudioBuffer } from "@/lib/media/audio";
 import { generateScenePlan } from "@/lib/scene-planner/generate-scenes";
 import {
@@ -603,6 +605,92 @@ export function useEditorActions() {
 					const message =
 						error instanceof Error ? error.message : "Unknown error";
 					toast.error("Transcript generation failed", {
+						id: toastId,
+						description: message,
+					});
+				}
+			})();
+		},
+		undefined,
+	);
+
+	useActionHandler(
+		"retranscribe-selection",
+		() => {
+			const config = getAIProviderConfig();
+			const hasGroq = Boolean(config?.groqApiKey);
+			if (!hasGroq) {
+				toast.info("Using in-browser Whisper", {
+					description:
+						"For best word-level accuracy, add a Groq API key in AI Settings.",
+				});
+			}
+
+			const projectId = editor.project.getActive()?.metadata.id;
+			if (!projectId) {
+				toast.error("No active project");
+				return;
+			}
+
+			const selected = editor.selection.getSelectedElements();
+			if (selected.length === 0) {
+				toast.error("No clips selected", {
+					description: "Select one or more clips on the timeline first.",
+				});
+				return;
+			}
+
+			const tracks = editor.timeline.getTracks();
+			const elements = selected
+				.map((sel) => {
+					for (const track of tracks) {
+						const el = track.elements.find((e) => e.id === sel.elementId);
+						if (el) return el;
+					}
+					return null;
+				})
+				.filter((el): el is TimelineElement => el != null);
+
+			if (elements.length === 0) {
+				toast.error("Selected clips not found on timeline");
+				return;
+			}
+
+			const toastId = toast.loading("Re-transcribing selected clips...", {
+				description: `${elements.length} clip${elements.length > 1 ? "s" : ""} selected`,
+			});
+
+			void (async () => {
+				try {
+					const mediaAssets = editor.media.getAssets();
+					const existing = await getProjectTranscript({ projectId });
+
+					const transcript = await retranscribeClips({
+						elements,
+						tracks,
+						mediaAssets,
+						existingTranscript: existing,
+						onProgress: (progress) => {
+							toast.loading(progress.message, {
+								id: toastId,
+								description:
+									progress.phase === "transcribing"
+										? `Chunk ${progress.current}/${progress.total}`
+										: undefined,
+							});
+						},
+					});
+
+					await setProjectTranscript({ projectId, transcript });
+
+					toast.success("Clips re-transcribed", {
+						id: toastId,
+						description: `${transcript.words.length} total words`,
+					});
+				} catch (error: unknown) {
+					const message =
+						error instanceof Error ? error.message : "Unknown error";
+					toast.error("Re-transcription failed", {
 						id: toastId,
 						description: message,
 					});
