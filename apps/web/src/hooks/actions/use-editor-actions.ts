@@ -21,10 +21,7 @@ import {
 	setProjectScenePlan,
 } from "@/lib/scene-planner/scene-plan-store";
 import { generateRemotionCode } from "@/lib/remotion-renderer/generate-code";
-import {
-	getProjectRemotionCode,
-	setProjectRemotionCode,
-} from "@/lib/remotion-renderer/store";
+import { setProjectRemotionCode } from "@/lib/remotion-renderer/store";
 import { detectSceneBoundaries } from "@/lib/scene-planner/detect-boundaries";
 import {
 	getProjectBoundaries,

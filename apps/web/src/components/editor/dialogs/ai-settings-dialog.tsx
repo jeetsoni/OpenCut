@@ -30,6 +30,7 @@ const FEATURE_LABELS: { key: keyof AIModelOverrides; label: string; hint: string
 	{ key: "codeGen", label: "Code Generation", hint: "Writes the Remotion component. Pro gives better results.", defaultGemini: "gemini-2.5-pro-preview-06-05" },
 	{ key: "codeReview", label: "Layout Review", hint: "Agentic pass that fixes overflow/overlap bugs in generated code. Flash is fine.", defaultGemini: "gemini-2.5-flash" },
 	{ key: "tweak", label: "Tweak", hint: "Surgical edits to existing animations. Pro recommended.", defaultGemini: "gemini-2.5-pro-preview-06-05" },
+	{ key: "visionReview", label: "Vision Review", hint: "Inspects rendered screenshots for layout bugs. Must be a vision-capable model. Flash is fast and sufficient.", defaultGemini: "gemini-2.0-flash" },
 ];
 
 export function AISettingsDialog({

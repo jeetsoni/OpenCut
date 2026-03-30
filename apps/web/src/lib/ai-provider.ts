@@ -29,6 +29,8 @@ export interface AIModelOverrides {
 	codeReview?: string;
 	/** Agentic tweak pass for targeted edits (surgical — Pro recommended) */
 	tweak?: string;
+	/** Vision review — inspects rendered screenshots for layout bugs (must support vision/images) */
+	visionReview?: string;
 }
 
 export interface AIProviderConfig {
