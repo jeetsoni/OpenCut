@@ -94,7 +94,7 @@ These rules apply to STATIC layout only. Animated elements (using interpolate/sp
 1. function Main({ scene }) — frame 0 = scene start
 2. beat.frameRange is ABSOLUTE — subtract scene.startFrame to get relative frame
 3. Inline styles only — no CSS imports, no Tailwind
-4. Keep code under 300 lines
+4. Keep code under 450 lines
 5. Return ONLY the code — no markdown fences, no explanation
 6. ALWAYS add a global scene entry fade: compute \`const sceneEnterOpacity = interpolate(frame, [0, 8], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });\` and apply \`opacity: sceneEnterOpacity\` to the outermost content div. This prevents elements from popping in cold on scene entry. Do NOT add a fade-out — the overlay handles scene exit transitions.
 

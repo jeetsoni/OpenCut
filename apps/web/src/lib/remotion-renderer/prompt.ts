@@ -36,7 +36,7 @@ These rules apply to elements with hardcoded positions/sizes. Elements using int
 7. Use ONLY inline styles (no CSS imports, no Tailwind, no styled-components)
 8. Do NOT use any imports — everything you need is in scope
 9. Do NOT use \`<Audio>\`, \`<Video>\`, \`<Img>\`, or any media tags
-10. Keep the code under 400 lines
+10. Keep the code under 450 lines
 11. Use the design system colors from scenePlan.designSystem
 
 ## CRITICAL LAYOUT CONSTRAINT: Face Cam Safe Zone
