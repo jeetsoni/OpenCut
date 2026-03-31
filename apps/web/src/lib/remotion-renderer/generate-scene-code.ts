@@ -7,6 +7,7 @@
 
 import { stepCountIs } from "ai";
 import { buildModel } from "@/lib/ai/provider";
+import { getAnimationTheme, type AnimationTheme } from "@/lib/animation-theme";
 import { tracedGenerateText } from "@/lib/ai/tracing";
 import { getAIProviderConfig } from "@/lib/ai-provider";
 import { createCodeEditorTools } from "@/lib/ai/tools/code-editor";
@@ -71,13 +72,16 @@ Face cam at bottom-left (y=1190–1770) — NEVER render below y=1150.
 ## Visual Quality Rules
 1. Background: #111318 — cards must be visibly lighter (#1C1F2E, #252840, or tinted variants)
 2. Text: #F8F8F8 primary, #9A9AA8 muted — always high contrast against card bg
-3. Card borders: 1.5px solid with color at 0.25-0.4 opacity
-4. Icon boxes: 60-72px, borderRadius:14-16
-5. Use SVG for diagrams, flow charts, scatter plots — NOT placeholder shapes
-6. Realistic content: real error messages, real code, real data — no lorem ipsum
-7. NO glowing, NO 3D, NO neon — Stripe/Linear/Notion enterprise aesthetic
-8. Smooth spring entries: spring({ frame, fps, config: { damping:14, stiffness:180 } })
-9. Idle animation: Math.sin(frame * 0.04) * 4 for subtle float
+3. Card borders: 1px–1.5px solid with color at 0.2–0.35 opacity — thin, consistent stroke weight
+4. NO box-shadow, NO drop-shadow anywhere — depth comes from tinted backgrounds and borders only
+5. NO gradients on text, backgrounds, or icons — flat solid fills only
+6. Icon boxes: 60-72px, borderRadius:14-16
+7. Use SVG for diagrams, flow charts, scatter plots — NOT placeholder shapes
+8. Realistic content: real error messages, real code, real data — no lorem ipsum
+9. NO glowing, NO 3D, NO neon, NO exaggerated shapes — Stripe/Linear/Notion enterprise aesthetic
+10. Smooth spring entries: spring({ frame, fps, config: { damping:14, stiffness:180 } })
+11. Idle animation: Math.sin(frame * 0.04) * 4 for subtle float
+12. Visual structure: scene headline title in the upper zone (~top 200px), primary visualization center, supporting labels below
 
 ## Defensive Layout Rules (prevent accidental overflow — NOT intentional animations)
 These rules apply to STATIC layout only. Animated elements (using interpolate/spring on position/size) are exempt — intentional scale, position, and size transitions are encouraged.
@@ -89,6 +93,13 @@ These rules apply to STATIC layout only. Animated elements (using interpolate/sp
 - Text on a single line inside a fixed-width container: add whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'
 - Text on multiple lines in a fixed box: add overflow:'hidden', display:'-webkit-box', WebkitLineClamp:N, WebkitBoxOrient:'vertical'
 - Cards that render a mapped array must have a maxHeight and overflow:'hidden' — dynamic lists can grow unbounded otherwise
+- NEVER mix CSS shorthand and longhand for the same property on the same element — React will log a conflict warning and the style may break. Use ONLY the shorthand OR ONLY the longhands, never both. Common pairs to avoid mixing:
+  - textDecoration + textDecorationColor / textDecorationLine / textDecorationStyle → use textDecoration shorthand only: textDecoration: 'underline solid #hex'
+  - background + backgroundColor / backgroundImage → use backgroundColor only (no gradients anyway)
+  - border + borderColor / borderWidth / borderStyle → use border shorthand or all three longhands, never mix
+  - padding + paddingTop/paddingBottom/paddingLeft/paddingRight → use padding shorthand only
+  - margin + marginTop/marginBottom/marginLeft/marginRight → use margin shorthand only
+  - font + fontSize / fontWeight / fontFamily → use individual longhands, never the font shorthand
 
 ## Rules
 1. function Main({ scene }) — frame 0 = scene start
@@ -163,6 +174,8 @@ These are issues on elements with HARDCODED pixel values and no animation on the
 **Out-of-bounds static element**: Element with hardcoded top + height > 1080 or left + width > 992. Fix by reducing the value.
 
 **Unbounded mapped list**: A .map() rendering children inside a fixed-height container without overflow:'hidden' or maxHeight — the list can grow past the container. Add overflow:'hidden'.
+
+**CSS shorthand/longhand conflict**: An element has both a shorthand property and one of its longhands set (e.g. textDecoration + textDecorationColor, border + borderColor, padding + paddingTop). React logs a warning and the style may break. Fix by removing the longhand and folding its value into the shorthand, or removing the shorthand and using all longhands consistently. Most common case: replace textDecoration:'underline', textDecorationColor:'#hex' with textDecoration:'underline solid #hex'.
 
 ## Workflow
 1. Call read_code
@@ -351,6 +364,25 @@ async function fixWithVisionFeedback(
 }
 
 /**
+ * Build the scene code system prompt with a specific animation theme injected.
+ */
+function buildSceneCodeSystemPrompt(theme: AnimationTheme): string {
+	return SCENE_CODE_SYSTEM_PROMPT
+		.replace(
+			"1. Background: #111318 — cards must be visibly lighter (#1C1F2E, #252840, or tinted variants)",
+			`1. Background: ${theme.background} — cards must be visibly lighter (${theme.surface}, ${theme.raised}, or tinted variants)`,
+		)
+		.replace(
+			"2. Text: #F8F8F8 primary, #9A9AA8 muted — always high contrast against card bg",
+			`2. Text: ${theme.textPrimary} primary, ${theme.textMuted} muted — always high contrast against card bg`,
+		)
+		.replace(
+			'backgroundColor: "#111318"',
+			`backgroundColor: "${theme.background}"`,
+		);
+}
+
+/**
  * Generate Remotion code for a single scene.
  */
 export async function generateSceneRemotionCode({
@@ -379,9 +411,10 @@ ${sceneJson}`;
 
 	onProgress?.({ phase: "generating", message: `AI is coding scene "${scene.name}"...` });
 
+	const theme = getAnimationTheme();
 	const { text } = await tracedGenerateText({
 		model,
-		system: SCENE_CODE_SYSTEM_PROMPT,
+		system: buildSceneCodeSystemPrompt(theme),
 		prompt: userPrompt,
 		temperature: 0.3,
 		langfuse: {

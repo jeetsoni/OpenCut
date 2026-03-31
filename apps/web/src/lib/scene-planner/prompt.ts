@@ -6,6 +6,69 @@
  * directions, following the design system and visual metaphor rules.
  */
 
+import { getCardTinted, type AnimationTheme } from "@/lib/animation-theme";
+
+/**
+ * Build the design system section of the prompt with a specific theme.
+ * Used to inject user-selected color themes into the AI prompt at generation time.
+ */
+export function buildScenePlannerDesignSystem(theme: AnimationTheme): string {
+	const cards = getCardTinted(theme);
+	return `
+## Design System
+
+Colors:
+- Background: ${theme.background}
+- Surface: ${theme.surface}
+- Raised: ${theme.raised}
+- Text Primary: ${theme.textPrimary}
+- Text Muted: ${theme.textMuted}
+- Accents:
+  - hookFear (Red): ${theme.accents.hookFear} — errors, mistakes, failures, negatives
+  - wrongPath (Amber): ${theme.accents.wrongPath} — warnings, analogies, real-world concepts
+  - techCode (Sky Blue): ${theme.accents.techCode} — tech terms, code, system components
+  - revelation (Green): ${theme.accents.revelation} — solutions, success, positive outcomes
+  - cta (Yellow): ${theme.accents.cta} — CTA, power statements, revelations
+  - violet: ${theme.accents.violet} — architecture, orchestration, system-level
+
+Card tinted backgrounds (must be visibly distinct from ${theme.background} background):
+- CARD_SKY: ${cards.sky}, CARD_RED: ${cards.red}, CARD_GREEN: ${cards.green}
+- CARD_AMBER: ${cards.amber}, CARD_VIOLET: ${cards.violet}, CARD_YELLOW: ${cards.yellow}
+
+Typography (mobile canvas = 1080px wide — text must be LARGE to be readable):
+- Hero titles: 88-120px, fontWeight 900, letterSpacing: -2
+- Section headlines: 64-80px, fontWeight 800, letterSpacing: -1
+- Subheadings / labels: 44-52px, fontWeight 700
+- Body / descriptions: 36-42px, fontWeight 500
+- Monospace (code, terminals, data): 30-38px
+- NEVER use text smaller than 30px — it becomes unreadable on mobile
+
+Visual rules:
+- FILL THE SAFE ZONE — content must occupy at least 800px of the 1080px usable height
+- Large breathing layouts: elements should span 70-100% of the 992px usable width
+- Card-based layouts with tinted backgrounds visibly distinct from the main bg
+- Flat vector SVG icons inside icon boxes (56-72px, borderRadius:14-16)
+- Thin 1px–1.5px solid borders with color at 0.2–0.35 opacity — consistent stroke weight throughout
+- NO box-shadow, NO drop-shadow, NO glow — borders and tinted backgrounds define depth
+- NO gradients on text, icons, or backgrounds — flat fills only; solid colors only
+- NO glowing effects, NO 3D, NO neon, NO cartoon elements, NO exaggerated shapes
+- Maximum 3-4 colors per visual — palette restraint is what makes it feel professional
+- Stripe / Linear / Notion enterprise aesthetic — LARGE and BOLD for mobile
+- Visual hierarchy per scene: clear headline title in the upper zone, primary visualization spanning the center, supporting labels/captions below
+
+## CRITICAL: Face Cam Safe Zone
+
+The canvas is 1080×1920. A face cam video box is ALWAYS present at the bottom-left:
+- Position: left=40, bottom=150, width=440, height=580
+- Face cam occupies y=1190 to y=1770 on the left side (x=0 to x=480)
+
+ALL animation content MUST stay in the SAFE ZONE above the face cam:
+- CANVAS_TOP = 80px, CANVAS_HEIGHT = 1080px (y=80 to y=1160)
+- Content must NOT extend below y=1150
+- FILL THIS SPACE — do not cluster content in the top 200px and leave the rest empty
+- Spread elements vertically across the full 1080px height`;
+}
+
 export const SCENE_PLANNER_SYSTEM_PROMPT = `You are a creative director for short-form video content (Instagram Reels / YouTube Shorts). Your job is to take a word-level transcript and produce a structured scenes JSON with rich animation directions.
 
 ## Your Task
@@ -71,10 +134,13 @@ Visual rules:
 - Large breathing layouts: elements should span 70-100% of the 992px usable width
 - Card-based layouts with tinted backgrounds visibly distinct from the main bg
 - Flat vector SVG icons inside icon boxes (56-72px, borderRadius:14-16)
-- 1.5px solid border with color+opacity
-- NO glowing effects, NO 3D, NO neon, NO cartoon elements
-- Maximum 3-4 colors per visual
-- Stripe / Linear / Notion enterprise aesthetic — but LARGE and BOLD for mobile
+- Thin 1px–1.5px solid borders with color at 0.2–0.35 opacity — consistent stroke weight throughout
+- NO box-shadow, NO drop-shadow, NO glow — borders and tinted backgrounds define depth
+- NO gradients on text, icons, or backgrounds — flat fills only; solid colors only
+- NO glowing effects, NO 3D, NO neon, NO cartoon elements, NO exaggerated shapes
+- Maximum 3-4 colors per visual — palette restraint is what makes it feel professional
+- Stripe / Linear / Notion enterprise aesthetic — LARGE and BOLD for mobile
+- Visual hierarchy per scene: clear headline title in the upper zone, primary visualization spanning the center, supporting labels/captions below
 
 ## CRITICAL: Face Cam Safe Zone
 

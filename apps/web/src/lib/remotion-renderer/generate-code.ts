@@ -9,9 +9,10 @@ import { buildModel } from "@/lib/ai/provider";
 import { tracedGenerateText } from "@/lib/ai/tracing";
 import type { ScenePlan } from "@/lib/scene-planner/schema";
 import {
-	REMOTION_CODE_SYSTEM_PROMPT,
+	buildRemotionCodeSystemPrompt,
 	REMOTION_CODE_USER_PROMPT_PREFIX,
 } from "./prompt";
+import { getAnimationTheme } from "@/lib/animation-theme";
 
 export interface CodeGenProgress {
 	phase: "preparing" | "generating" | "done";
@@ -75,7 +76,7 @@ export async function generateRemotionCode({
 
 	const { text } = await tracedGenerateText({
 		model,
-		system: REMOTION_CODE_SYSTEM_PROMPT,
+		system: buildRemotionCodeSystemPrompt(getAnimationTheme()),
 		prompt: userPrompt,
 		temperature: 0.3,
 		langfuse: { name: "generate-remotion-code" },
