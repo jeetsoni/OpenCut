@@ -5,6 +5,8 @@
  * that uses Remotion primitives to render the graphical animations.
  */
 
+import type { AnimationTheme } from "@/lib/animation-theme";
+
 export const REMOTION_CODE_SYSTEM_PROMPT = `You are a Remotion code generator. You receive a ScenePlan JSON and produce a single React component that renders animated motion graphics for a short-form video.
 
 ## Available Imports (pre-provided, do NOT import them)
@@ -36,7 +38,7 @@ These rules apply to elements with hardcoded positions/sizes. Elements using int
 7. Use ONLY inline styles (no CSS imports, no Tailwind, no styled-components)
 8. Do NOT use any imports — everything you need is in scope
 9. Do NOT use \`<Audio>\`, \`<Video>\`, \`<Img>\`, or any media tags
-10. Keep the code under 400 lines
+10. Keep the code under 450 lines
 11. Use the design system colors from scenePlan.designSystem
 
 ## CRITICAL LAYOUT CONSTRAINT: Face Cam Safe Zone
@@ -60,11 +62,14 @@ ALL your rendered content MUST stay in the SAFE ZONE above the face cam:
 - Flat vector shapes (divs with borderRadius, SVGs for diagrams/charts)
 - Use SVG for technical diagrams: scatter plots, flow charts, node graphs with grid lines, axis labels, connection paths
 - Use monospace fontFamily for anything representing code, terminal output, vectors, or data
-- 1.5px solid borders with color + opacity
+- Thin 1px–1.5px solid borders with color at 0.2–0.35 opacity — consistent stroke weight throughout
+- NO box-shadow, NO drop-shadow anywhere — depth comes from tinted card backgrounds and borders only
+- NO gradients on text, backgrounds, or icons — flat solid fills only
 - Typography: hero titles 96-120px/900, headlines 68-80px/800, subheadings 44-52px/700, body 36-42px/500, monospace 30-38px — MINIMUM 30px
-- NO glowing effects, NO 3D, NO neon — Stripe / Linear / Notion enterprise aesthetic
+- NO glowing effects, NO 3D, NO neon, NO exaggerated shapes — Stripe / Linear / Notion enterprise aesthetic
 - Smooth spring entries, subtle Math.sin idle animations
 - FILL THE SAFE ZONE — content must spread across full 1080px usable height
+- Visual structure: scene headline in the upper zone, primary visualization center, labels below
 - All content REALISTIC — real error messages, real code, real data — no lorem ipsum
 
 ## Component Structure
@@ -103,6 +108,25 @@ For each beat in a scene:
 
 Return ONLY the component code. No markdown fences, no explanation, no imports.
 Start directly with: function Main({ scenePlan }) {`;
+
+/**
+ * Build the Remotion code system prompt with a specific animation theme injected.
+ */
+export function buildRemotionCodeSystemPrompt(theme: AnimationTheme): string {
+	return REMOTION_CODE_SYSTEM_PROMPT
+		.replace(
+			"- Background: #111318 — cards must be visibly lighter (#1C1F2E, #252840, tinted variants)",
+			`- Background: ${theme.background} — cards must be visibly lighter (${theme.surface}, ${theme.raised}, tinted variants)`,
+		)
+		.replace(
+			"- Text: #F8F8F8 primary, #9A9AA8 muted — always high contrast",
+			`- Text: ${theme.textPrimary} primary, ${theme.textMuted} muted — always high contrast`,
+		)
+		.replace(
+			'backgroundColor: "#111318"',
+			`backgroundColor: "${theme.background}"`,
+		);
+}
 
 export const REMOTION_CODE_USER_PROMPT_PREFIX = `Generate a Remotion React component for this scene plan. The component should create beautiful, animated motion graphics that visualize the spoken content.
 

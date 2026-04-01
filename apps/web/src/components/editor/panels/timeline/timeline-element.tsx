@@ -345,6 +345,14 @@ export function TimelineElement({
 						AI remove retakes
 					</ActionMenuItem>
 				)}
+				{canElementHaveAudio(element) && hasAudio && (
+					<ActionMenuItem
+						action="retranscribe-selection"
+						icon={<HugeiconsIcon icon={VolumeHighIcon} />}
+					>
+						Re-transcribe clip
+					</ActionMenuItem>
+				)}
 				<ActionMenuItem
 					action="review-removed-retakes"
 					icon={<HugeiconsIcon icon={RotateIcon} />}

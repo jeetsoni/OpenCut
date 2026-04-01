@@ -46,7 +46,7 @@ export async function visionReviewFrames(
 	const userText = `Review these ${frames.length} screenshot(s) from scene "${sceneName}" for layout bugs. Each frame is from a different animation beat.`;
 
 	try {
-		const model = buildModel({ gemini: "gemini-2.0-flash" });
+		const model = buildModel({ gemini: "gemini-2.0-flash", feature: "visionReview" });
 		const { text } = await tracedGenerateText({
 			model,
 			system: VISION_SYSTEM_PROMPT,

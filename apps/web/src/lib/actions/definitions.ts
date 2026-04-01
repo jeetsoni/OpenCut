@@ -198,6 +198,10 @@ export const ACTIONS = {
 		description: "Detect scene boundaries then generate direction + animation code for every scene",
 		category: "editing",
 	},
+	"retranscribe-selection": {
+		description: "Re-transcribe selected clips to fix incomplete or inaccurate words",
+		category: "editing",
+	},
 } as const satisfies Record<string, TActionDefinition>;
 
 export type TAction = keyof typeof ACTIONS;

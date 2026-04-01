@@ -13,7 +13,9 @@ import type { PlannedScene } from "./schema";
 import {
 	SCENE_PLANNER_DESIGN_SYSTEM,
 	SCENE_PLANNER_ANIMATION_RULES,
+	buildScenePlannerDesignSystem,
 } from "./prompt";
+import { getAnimationTheme, type AnimationTheme } from "@/lib/animation-theme";
 import type { ProjectTranscript } from "@/types/transcription";
 
 export interface DirectionProgress {
@@ -102,6 +104,16 @@ Respond with ONLY valid JSON for this single scene:
 }`;
 
 /**
+ * Build the direction system prompt with a specific animation theme injected.
+ */
+function buildDirectionSystemPrompt(theme: AnimationTheme): string {
+	return DIRECTION_SYSTEM_PROMPT.replace(
+		SCENE_PLANNER_DESIGN_SYSTEM,
+		buildScenePlannerDesignSystem(theme),
+	);
+}
+
+/**
  * Generate design direction for a single scene.
  */
 export async function generateSceneDirection({
@@ -159,9 +171,10 @@ Remember:
 
 	onProgress?.({ phase: "generating", message: `AI is directing scene "${boundary.name}"...` });
 
+	const theme = getAnimationTheme();
 	const { text } = await tracedGenerateText({
 		model,
-		system: DIRECTION_SYSTEM_PROMPT,
+		system: buildDirectionSystemPrompt(theme),
 		prompt: userPrompt,
 		temperature: 0.4,
 		langfuse: {
