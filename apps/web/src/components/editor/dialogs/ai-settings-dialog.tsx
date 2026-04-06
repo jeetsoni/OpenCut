@@ -253,32 +253,69 @@ export function AISettingsDialog({
 					Animation Theme
 				</div>
 
-				<div className="grid grid-cols-3 gap-2">
-					{ANIMATION_THEME_PRESETS.map((preset) => (
-						<button
-							key={preset.id}
-							type="button"
-							onClick={() => setSelectedTheme(preset)}
-							className={cn(
-								"flex flex-col items-center gap-1 rounded-lg border p-2 transition-colors hover:border-foreground/30",
-								selectedTheme.id === preset.id ? "border-primary" : "border-border",
-							)}
-						>
-							<div
-								style={{ backgroundColor: preset.background }}
-								className="w-full h-7 rounded flex items-center justify-center gap-1"
+				<div className="grid grid-cols-2 gap-3">
+					{ANIMATION_THEME_PRESETS.map((preset) => {
+						const isSelected = selectedTheme.id === preset.id;
+						const accents = Object.values(preset.accents) as string[];
+						return (
+							<button
+								key={preset.id}
+								type="button"
+								onClick={() => setSelectedTheme(preset)}
+								className={cn(
+									"group relative flex flex-col rounded-xl border-2 p-0 overflow-hidden transition-all",
+									isSelected
+										? "border-primary ring-1 ring-primary/30"
+										: "border-border hover:border-foreground/25",
+								)}
 							>
-								{(Object.values(preset.accents) as string[]).slice(0, 4).map((color) => (
+								{/* Theme preview area */}
+								<div
+									style={{ backgroundColor: preset.background }}
+									className="w-full p-3 flex flex-col gap-2"
+								>
+									{/* Simulated card with surface color */}
 									<div
-										key={color}
-										style={{ backgroundColor: color }}
-										className="w-2 h-2 rounded-full"
-									/>
-								))}
-							</div>
-							<span className="text-xs">{preset.name}</span>
-						</button>
-					))}
+										style={{ backgroundColor: preset.surface }}
+										className="rounded-md p-2 flex flex-col gap-1.5"
+									>
+										{/* Title text line */}
+										<div
+											style={{ backgroundColor: preset.textPrimary }}
+											className="h-1.5 w-3/4 rounded-full opacity-90"
+										/>
+										{/* Muted text line */}
+										<div
+											style={{ backgroundColor: preset.textMuted }}
+											className="h-1 w-1/2 rounded-full opacity-70"
+										/>
+									</div>
+									{/* Accent color bar */}
+									<div className="flex gap-1 px-0.5">
+										{accents.map((color, i) => (
+											<div
+												key={i}
+												style={{ backgroundColor: color }}
+												className="h-2 flex-1 rounded-full first:rounded-l-full last:rounded-r-full"
+											/>
+										))}
+									</div>
+								</div>
+								{/* Label */}
+								<div className="flex items-center justify-between px-3 py-2 bg-card">
+									<span className="text-xs font-medium">{preset.name}</span>
+									{isSelected && (
+										<div className="size-4 rounded-full bg-primary flex items-center justify-center">
+											<svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+												<path d="M2 5.5L4 7.5L8 3" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+											</svg>
+										</div>
+									)}
+								</div>
+							</button>
+						);
+					})}
+					{/* Custom theme card */}
 					<button
 						type="button"
 						onClick={() => {
@@ -287,14 +324,30 @@ export function AISettingsDialog({
 							}
 						}}
 						className={cn(
-							"flex flex-col items-center gap-1 rounded-lg border p-2 transition-colors hover:border-foreground/30",
-							selectedTheme.id === "custom" ? "border-primary" : "border-border",
+							"group relative flex flex-col rounded-xl border-2 overflow-hidden transition-all",
+							selectedTheme.id === "custom"
+								? "border-primary ring-1 ring-primary/30"
+								: "border-dashed border-border hover:border-foreground/25",
 						)}
 					>
-						<div className="w-full h-7 rounded border border-dashed border-border flex items-center justify-center">
-							<span className="text-muted-foreground text-lg leading-none">+</span>
+						<div className="w-full p-3 flex items-center justify-center h-[72px]">
+							<div className="flex flex-col items-center gap-1 text-muted-foreground">
+								<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+									<path d="M10 4V16M4 10H16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+								</svg>
+								<span className="text-[10px]">Create your own</span>
+							</div>
 						</div>
-						<span className="text-xs">Custom</span>
+						<div className="flex items-center justify-between px-3 py-2 bg-card">
+							<span className="text-xs font-medium">Custom</span>
+							{selectedTheme.id === "custom" && (
+								<div className="size-4 rounded-full bg-primary flex items-center justify-center">
+									<svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+										<path d="M2 5.5L4 7.5L8 3" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+									</svg>
+								</div>
+							)}
+						</div>
 					</button>
 				</div>
 
