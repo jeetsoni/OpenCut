@@ -1313,8 +1313,16 @@ export async function POST(request: NextRequest) {
 					});
 					controller.close();
 				} finally {
-					// Cleanup temp files
+					// Cleanup temp files — both our own tmpDir and upload dirs from segments
 					cleanup(tmpDir);
+					if (faceVideoSegments.length > 0) cleanupSegmentUploads(faceVideoSegments);
+					if (mainVideoSegments && mainVideoSegments.length > 0) cleanupSegmentUploads(mainVideoSegments);
+					if (videoClips.length > 0) {
+						// VideoClipData has the same serverPath shape
+						cleanupSegmentUploads(videoClips.map((c) => ({ serverPath: c.serverPath, trimStart: 0, duration: 0, timelineStart: 0 })));
+					}
+					// Also clean up any stale opencut temp files from previous exports
+					cleanupStaleTempFiles();
 				}
 			},
 		});
@@ -1328,6 +1336,7 @@ export async function POST(request: NextRequest) {
 		});
 	} catch (error) {
 		cleanup(tmpDir);
+		cleanupStaleTempFiles();
 		console.error("[export-video] Failed:", error);
 		const message = error instanceof Error ? error.message : "Unknown error";
 		return NextResponse.json({ error: message }, { status: 500 });
@@ -1339,5 +1348,53 @@ function cleanup(dir: string) {
 		fs.rmSync(dir, { recursive: true, force: true });
 	} catch {
 		// ignore cleanup errors
+	}
+}
+
+/**
+ * Clean up temp directories created by upload-media for the given segments.
+ * Each segment's serverPath is like C:\...\Temp\opencut-export-{ts}\file.mp4
+ * — we need to remove the parent directory.
+ */
+function cleanupSegmentUploads(segments: MainVideoSegmentData[]) {
+	const dirs = new Set<string>();
+	for (const seg of segments) {
+		if (seg.serverPath) {
+			const dir = path.dirname(seg.serverPath);
+			if (dir.includes("opencut-export-")) {
+				dirs.add(dir);
+			}
+		}
+	}
+	for (const dir of dirs) {
+		cleanup(dir);
+	}
+}
+
+/**
+ * Remove stale opencut temp files/dirs older than 1 hour.
+ * Runs best-effort on each export request to prevent accumulation.
+ */
+function cleanupStaleTempFiles() {
+	try {
+		const tmpDir = os.tmpdir();
+		const entries = fs.readdirSync(tmpDir);
+		const now = Date.now();
+		const ONE_HOUR = 60 * 60 * 1000;
+
+		for (const entry of entries) {
+			if (!entry.startsWith("opencut-")) continue;
+			const fullPath = path.join(tmpDir, entry);
+			try {
+				const stat = fs.statSync(fullPath);
+				if (now - stat.mtimeMs > ONE_HOUR) {
+					fs.rmSync(fullPath, { recursive: true, force: true });
+				}
+			} catch {
+				// skip entries we can't stat or remove
+			}
+		}
+	} catch {
+		// ignore errors — this is best-effort cleanup
 	}
 }
