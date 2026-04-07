@@ -655,83 +655,117 @@ __define("scheduler", function(module, exports) {
 }
 
 /**
+ * Probe the audio stream start_time of a media file using ffprobe.
+ *
+ * Many raw recordings (webcam, OBS, phone) have an audio stream that starts
+ * slightly after the video stream (positive start_time). The Web Audio API
+ * normalizes this away when decoding, so preview playback is fine. But FFmpeg
+ * trim/atrim filters use container timestamps, so we need to compensate.
+ *
+ * Returns the audio start_time in seconds (0 if no audio or on error).
+ */
+function probeAudioStartTime(filePath: string): Promise<number> {
+	return new Promise((resolve) => {
+		const args = [
+			"-v", "error",
+			"-select_streams", "a:0",
+			"-show_entries", "stream=start_time",
+			"-of", "csv=p=0",
+			filePath,
+		];
+		const proc = spawn("ffprobe", args);
+		let stdout = "";
+		proc.stdout.on("data", (d) => { stdout += d.toString(); });
+		proc.on("close", () => {
+			const val = parseFloat(stdout.trim());
+			resolve(Number.isFinite(val) && val > 0 ? val : 0);
+		});
+		proc.on("error", () => resolve(0));
+	});
+}
+
+/**
  * Build a base video from raw uploaded segments by trimming with ffmpeg.
  *
- * Uses input seeking (-ss before -i) for fast keyframe-level seeking combined
- * with re-encoding (libx264) to:
- *  1. Fix freeze artifacts: stream copy (-c copy) copies incomplete GOPs when
- *     seeking mid-GOP, causing players to freeze until the next keyframe.
- *     Re-encoding creates a proper I-frame at the start of the output.
- *  2. Fix duration: stream copy may output more frames than requested when
- *     keyframes are sparse. Re-encoding honours -t exactly.
+ * IMPORTANT: The editor's trimStart values are in "decoded buffer time" where
+ * audio sample 0 = first real audio content. But raw recordings often have
+ * audio that starts later than video (e.g. 0.334s). The Web Audio API strips
+ * this delay when decoding, so the editor's trimStart=5.0 means "5s into the
+ * decoded content" which is actually at container time 5.334s. We detect this
+ * offset via ffprobe and add it to trimStart so FFmpeg grabs the right portion.
  */
-function buildBaseFromSegments({
+async function buildBaseFromSegments({
 	segments,
 	outputPath,
 }: {
 	segments: MainVideoSegmentData[];
 	outputPath: string;
 }): Promise<void> {
-	return new Promise((resolve, reject) => {
-		// Guard: skip segments with near-zero duration (floating-point residue from
-		// split/trim ops) — ffmpeg rejects -t values below ~0.001s with exit 234.
-		const sorted = [...segments]
-			.filter((s) => s.duration >= 0.01)
-			.sort((a, b) => a.timelineStart - b.timelineStart);
+	const sorted = [...segments]
+		.filter((s) => s.duration >= 0.01)
+		.sort((a, b) => a.timelineStart - b.timelineStart);
 
-		if (sorted.length === 0) {
-			reject(new Error("All segments have near-zero duration — nothing to encode."));
-			return;
-		}
+	if (sorted.length === 0) {
+		throw new Error("All segments have near-zero duration — nothing to encode.");
+	}
 
-		const args: string[] = ["-y"];
-
-		// Fast input seek for each segment (-ss before -i seeks to nearest keyframe)
-		for (const seg of sorted) {
-			args.push("-ss", String(seg.trimStart), "-t", String(seg.duration), "-i", seg.serverPath);
-		}
-
-		if (sorted.length === 1) {
-			// Single segment: re-encode to fix keyframe alignment and honour -t exactly.
-			// No explicit -map so FFmpeg auto-selects all available streams (video + audio).
-			args.push(
-				"-c:v", "libx264",
-				"-preset", "fast",
-				"-crf", "18",
-				"-pix_fmt", "yuv420p",
-				"-c:a", "aac",
-				"-b:a", "192k",
-				outputPath,
-			);
-		} else {
-			// Multiple segments: filter_complex concat with re-encoding.
-			// Build video + audio concat; use anullsrc fallback so segments without
-			// an audio track still produce a silent audio stream for concat compatibility.
-			const filterParts: string[] = [];
-			for (let i = 0; i < sorted.length; i++) {
-				filterParts.push(`[${i}:v]setpts=PTS-STARTPTS[v${i}]`);
-				// anullsrc gives a silent stream when no audio exists in the input
-				filterParts.push(
-					`[${i}:a]asetpts=PTS-STARTPTS[a${i}]`,
-				);
+	// Probe each unique file for audio start_time offset.
+	const audioOffsetCache = new Map<string, number>();
+	for (const seg of sorted) {
+		if (!audioOffsetCache.has(seg.serverPath)) {
+			const offset = await probeAudioStartTime(seg.serverPath);
+			audioOffsetCache.set(seg.serverPath, offset);
+			if (offset > 0) {
+				console.log(`[buildBaseFromSegments] Audio offset: ${offset}s for ${seg.serverPath}`);
 			}
-			const concatInputs = sorted.map((_, i) => `[v${i}][a${i}]`).join("");
-			filterParts.push(`${concatInputs}concat=n=${sorted.length}:v=1:a=1[outv][outa]`);
-
-			args.push(
-				"-filter_complex", filterParts.join(";"),
-				"-map", "[outv]",
-				"-map", "[outa]",
-				"-c:v", "libx264",
-				"-preset", "fast",
-				"-crf", "18",
-				"-pix_fmt", "yuv420p",
-				"-c:a", "aac",
-				"-b:a", "192k",
-				outputPath,
-			);
 		}
+	}
 
+	const args: string[] = ["-y"];
+
+	for (const seg of sorted) {
+		const audioOffset = audioOffsetCache.get(seg.serverPath) ?? 0;
+		// Shift trimStart by audio offset to convert from decoded-buffer-time
+		// to container-time. This ensures FFmpeg grabs the same content the
+		// editor preview shows.
+		const containerTrimStart = seg.trimStart + audioOffset;
+		args.push("-ss", String(containerTrimStart), "-t", String(seg.duration), "-i", seg.serverPath);
+	}
+
+	if (sorted.length === 1) {
+		args.push(
+			"-c:v", "libx264",
+			"-preset", "fast",
+			"-crf", "18",
+			"-pix_fmt", "yuv420p",
+			"-c:a", "aac",
+			"-b:a", "192k",
+			outputPath,
+		);
+	} else {
+		const filterParts: string[] = [];
+		for (let i = 0; i < sorted.length; i++) {
+			filterParts.push(`[${i}:v]setpts=PTS-STARTPTS[v${i}]`);
+			filterParts.push(`[${i}:a]asetpts=PTS-STARTPTS[a${i}]`);
+		}
+		const concatInputs = sorted.map((_, i) => `[v${i}][a${i}]`).join("");
+		filterParts.push(`${concatInputs}concat=n=${sorted.length}:v=1:a=1[outv][outa]`);
+
+		args.push(
+			"-filter_complex", filterParts.join(";"),
+			"-map", "[outv]",
+			"-map", "[outa]",
+			"-c:v", "libx264",
+			"-preset", "fast",
+			"-crf", "18",
+			"-pix_fmt", "yuv420p",
+			"-c:a", "aac",
+			"-b:a", "192k",
+			outputPath,
+		);
+	}
+
+	return new Promise((resolve, reject) => {
 		const ff = spawn("ffmpeg", args);
 		let stderr = "";
 		ff.stderr.on("data", (d) => { stderr += d.toString(); });
@@ -791,12 +825,9 @@ function compositeWithFFmpeg({
 		if (videoClips && videoClips.length > 0) {
 			for (const clip of videoClips) {
 				if (fs.existsSync(clip.serverPath)) {
-					// Use -ss before -i for fast seeking, -t to limit duration
-					args.push(
-						"-ss", String(clip.trimStart),
-						"-t", String(clip.duration),
-						"-i", clip.serverPath,
-					);
+					// Load full input — trimming is handled in the filter graph
+					// to avoid keyframe-snap and audio offset issues.
+					args.push("-i", clip.serverPath);
 					pipInputs.push({ index: nextInputIdx, clip });
 					nextInputIdx++;
 				}
@@ -841,12 +872,14 @@ function compositeWithFFmpeg({
 
 			// Scale + crop each clip to the same inner size for concat compatibility
 			// Use lanczos scaling for sharper downscale quality
+			// Also apply trim here since we no longer use -ss/-t on input
 			for (let i = 0; i < sortedPips.length; i++) {
-				const { index } = sortedPips[i];
+				const { index, clip } = sortedPips[i];
+				const trimEnd = clip.trimStart + clip.duration;
 				filterParts.push(
-					`[${index}:v]scale=${innerW}:${innerH}:force_original_aspect_ratio=increase:flags=lanczos,` +
-					`crop=${innerW}:${innerH},` +
-					`setpts=PTS-STARTPTS` +
+					`[${index}:v]trim=start=${clip.trimStart}:end=${trimEnd},setpts=PTS-STARTPTS,` +
+					`scale=${innerW}:${innerH}:force_original_aspect_ratio=increase:flags=lanczos,` +
+					`crop=${innerW}:${innerH}` +
 					`[pip_scaled_${i}]`,
 				);
 			}
