@@ -23,7 +23,7 @@ import { getSceneRemotionCode } from "@/lib/remotion-renderer/scene-code-store";
 import type { SceneBoundaries, SceneBoundary } from "@/lib/scene-planner/boundaries";
 import type { PlannedScene } from "@/lib/scene-planner/schema";
 import { invokeAction } from "@/lib/actions";
-import { Sparkles, ChevronDown, ChevronRight, Play, Pencil, Check, X, Music } from "lucide-react";
+import { Sparkles, ChevronDown, ChevronRight, Play, Pencil, Check, X, Music, RefreshCw } from "lucide-react";
 import { applyAutoSfx, collectSfxHints } from "@/lib/scene-planner/auto-sfx";
 import { EditorCore } from "@/core";
 import { toast } from "sonner";
@@ -118,6 +118,16 @@ export function ScenePlanDialog({
 	const handleGenerateAllAnimations = () => {
 		onOpenChange(false);
 		invokeAction("generate-all-animations");
+	};
+
+	const handleRegenerateAll = () => {
+		onOpenChange(false);
+		invokeAction("regenerate-all-animations");
+	};
+
+	const handleGenerateRemaining = () => {
+		onOpenChange(false);
+		invokeAction("generate-remaining-animations");
 	};
 
 	const handleRedetect = async () => {
@@ -256,6 +266,14 @@ export function ScenePlanDialog({
 					<DialogFooter>
 						<Button variant="outline" size="sm" onClick={handleRedetect}>
 							Re-detect Boundaries
+						</Button>
+						<Button variant="outline" size="sm" onClick={handleGenerateRemaining}>
+							<Play size={14} className="mr-1.5" />
+							Generate Remaining
+						</Button>
+						<Button variant="outline" size="sm" onClick={handleRegenerateAll}>
+							<RefreshCw size={14} className="mr-1.5" />
+							Regenerate All
 						</Button>
 						<Button variant="outline" size="sm" onClick={handleGenerateAllAnimations}>
 							<Sparkles size={14} className="mr-1.5" />

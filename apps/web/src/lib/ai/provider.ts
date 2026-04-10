@@ -46,3 +46,18 @@ export function buildModel(defaults?: {
 	});
 	return openai(featureOverride || config.model || defaults?.openai || "gpt-4o-mini");
 }
+
+/**
+ * Returns the Google Search tool for grounding, or undefined if the user
+ * is on an OpenAI provider (which doesn't support this tool).
+ *
+ * Usage: pass the returned object into the `tools` field of generateText().
+ * The model decides autonomously when to search — no extra prompting needed.
+ */
+export function getGoogleSearchTool(): Record<string, unknown> | undefined {
+	const config = getAIProviderConfig();
+	if (config?.provider !== "gemini" || !config.apiKey) return undefined;
+
+	const google = createGoogleGenerativeAI({ apiKey: config.apiKey });
+	return { google_search: google.tools.googleSearch({}) };
+}

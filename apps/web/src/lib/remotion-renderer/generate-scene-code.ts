@@ -6,7 +6,7 @@
  */
 
 import { stepCountIs } from "ai";
-import { buildModel } from "@/lib/ai/provider";
+import { buildModel, getGoogleSearchTool } from "@/lib/ai/provider";
 import { getAnimationTheme, type AnimationTheme } from "@/lib/animation-theme";
 import { tracedGenerateText } from "@/lib/ai/tracing";
 import { getAIProviderConfig } from "@/lib/ai-provider";
@@ -31,6 +31,10 @@ function extractCode(text: string): string {
 }
 
 const SCENE_CODE_SYSTEM_PROMPT = `You are a world-class Remotion motion graphics engineer. You receive a single scene's animation direction and produce a React component that renders RICH, PROFESSIONAL animated motion graphics — the quality of a senior designer at a top tech company, combined with the clarity of a master teacher.
+
+## ABSOLUTE RULES (violating these is a critical bug)
+- NEVER use textOverflow:'ellipsis' or whiteSpace:'nowrap' on ANY title, heading, or headline text. Titles must ALWAYS be fully visible. If a title is too long, reduce its fontSize or let it wrap to 2 lines — never truncate it with "...".
+- NEVER use <img> tags or external URLs for logos/icons — they will 404 or be blocked by CORS. Draw logos as inline <svg> elements with <path> data in JSX.
 
 ## Available Globals (do NOT import)
 - React (useState, useEffect, useMemo, useCallback)
@@ -61,13 +65,23 @@ Face cam at bottom-left (y=1190–1770) — NEVER render below y=1150.
 - Use large elements: hero visuals 500-700px tall, supporting content below
 - Width: elements should span 70-100% of the 992px usable width
 
-## Typography (mobile-first — always large)
+## Typography (mobile-first — always large, but ADAPTIVE to content density)
+Count the number of distinct visual blocks (cards, panels, code boxes, diagrams) in the scene.
+- 1-2 blocks → use LARGE sizes (hero titles 96-120, headlines 68-80)
+- 3-4 blocks → use MEDIUM sizes (hero titles 72-88, headlines 56-64, body 32-38)
+- 5+ blocks → use COMPACT sizes (hero titles 56-68, headlines 44-52, body 30-34)
+
+Size reference (for 1-2 block scenes):
 - Hero titles: fontSize:96-120, fontWeight:900, letterSpacing:-2
 - Section headlines: fontSize:68-80, fontWeight:800, letterSpacing:-1
 - Subheadings / labels: fontSize:44-52, fontWeight:700
 - Body / descriptions: fontSize:36-42, fontWeight:500
 - Monospace (code, terminals, data): fontSize:30-38
-- MINIMUM fontSize: 30 — never go smaller
+- MINIMUM fontSize: 28 — never go smaller
+
+CRITICAL: Before writing any layout, calculate total height budget:
+- Sum up all block heights + gaps. If total > CANVAS_H (1080), reduce block heights or font sizes until it fits.
+- Each card's internal content (title + body + padding) must fit within its declared height — measure before committing.
 
 ## Visual Quality Rules
 1. Background: #111318 — cards must be visibly lighter (#1C1F2E, #252840, or tinted variants)
@@ -82,17 +96,22 @@ Face cam at bottom-left (y=1190–1770) — NEVER render below y=1150.
 10. Smooth spring entries: spring({ frame, fps, config: { damping:14, stiffness:180 } })
 11. Idle animation: Math.sin(frame * 0.04) * 4 for subtle float
 12. Visual structure: scene headline title in the upper zone (~top 200px), primary visualization center, supporting labels below
+13. HEIGHT BUDGET: Before coding, list every block with its height. Sum must be ≤ CANVAS_H (1080) including gaps. If it exceeds, shrink the largest blocks first.
+14. LOGOS AND ICONS: NEVER use <img> tags or external URLs for logos/icons — they will 404 or be blocked by CORS. Instead, draw logos as inline SVG <svg> elements with <path> data directly in JSX. For well-known companies (Google, Anthropic, OpenAI, AWS, etc.), reproduce their logo as a simplified SVG path. If you don't know the exact path, create a recognizable stylized version using basic SVG shapes (circles, rects, paths). A simple but visible icon is always better than a broken image.
 
 ## Defensive Layout Rules (prevent accidental overflow — NOT intentional animations)
 These rules apply to STATIC layout only. Animated elements (using interpolate/spring on position/size) are exempt — intentional scale, position, and size transitions are encouraged.
 
 - ALWAYS add overflow:'hidden' to every card/container that has a fixed width or height and is NOT itself animating its size
+- EVERY text element inside a fixed-height container MUST have overflow protection — this is mandatory, not optional:
+  - HERO TITLES and HEADLINES: NEVER use textOverflow:'ellipsis' on titles or headings — instead, reduce fontSize until the text fits on 1-2 lines, or allow wrapping with overflow:'hidden' and a line clamp of 2-3 lines
+  - Single-line LABELS and SMALL TEXT (not titles): whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'
+  - Multi-line body text → overflow:'hidden', display:'-webkit-box', WebkitLineClamp:N, WebkitBoxOrient:'vertical'
 - For sibling elements that are BOTH statically positioned (no interpolate/spring on top/left/width/height), use flexbox (display:'flex', gap:N) instead of position:'absolute' — static siblings must not share the same screen region
 - When using position:'absolute' with hardcoded values (no animation), verify: top + height <= CANVAS_H and left + width <= 992
 - ALWAYS add boxSizing:'border-box' to any element with both padding and a fixed size
-- Text on a single line inside a fixed-width container: add whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'
-- Text on multiple lines in a fixed box: add overflow:'hidden', display:'-webkit-box', WebkitLineClamp:N, WebkitBoxOrient:'vertical'
 - Cards that render a mapped array must have a maxHeight and overflow:'hidden' — dynamic lists can grow unbounded otherwise
+- PREFER flexbox with flexShrink:1 and minHeight:0 for stacking cards vertically — this lets the browser compress cards evenly when space is tight, instead of hardcoding heights that may not fit
 - NEVER mix CSS shorthand and longhand for the same property on the same element — React will log a conflict warning and the style may break. Use ONLY the shorthand OR ONLY the longhands, never both. Common pairs to avoid mixing:
   - textDecoration + textDecorationColor / textDecorationLine / textDecorationStyle → use textDecoration shorthand only: textDecoration: 'underline solid #hex'
   - background + backgroundColor / backgroundImage → use backgroundColor only (no gradients anyway)
@@ -108,6 +127,9 @@ These rules apply to STATIC layout only. Animated elements (using interpolate/sp
 4. Keep code under 450 lines
 5. Return ONLY the code — no markdown fences, no explanation
 6. ALWAYS add a global scene entry fade: compute \`const sceneEnterOpacity = interpolate(frame, [0, 8], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });\` and apply \`opacity: sceneEnterOpacity\` to the outermost content div. This prevents elements from popping in cold on scene entry. Do NOT add a fade-out — the overlay handles scene exit transitions.
+
+## Web Research (Google Search)
+You have access to Google Search. Use it when the scene references specific technologies, companies, APIs, libraries, or tools — search for accurate details like real SVG logos, real CLI output, real API response shapes, real UI patterns. This helps you produce visuals grounded in reality. Search sparingly and only when factual accuracy matters for the visualization.
 
 ## Component Structure
 function Main({ scene }) {
@@ -168,8 +190,11 @@ These are issues on elements with HARDCODED pixel values and no animation on the
 **Flex overflow**: Flex column children whose heights + gaps sum to more than the parent's fixed height, where none of those heights is animated. Fix by reducing a height or adding overflow:'hidden' to the parent.
 
 **Text overflow**: Text inside a fixed-width container with no overflow protection:
-- Single-line label → add whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'
+- NEVER add textOverflow:'ellipsis' to hero titles or section headlines — instead reduce fontSize or allow wrapping with a line clamp
+- Single-line labels and small text (not titles) → add whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'
 - Multi-line text in fixed box → add overflow:'hidden', display:'-webkit-box', WebkitLineClamp:3, WebkitBoxOrient:'vertical'
+
+**Ellipsis on titles (CRITICAL)**: Any element with fontSize >= 40 that has textOverflow:'ellipsis' or whiteSpace:'nowrap' is a bug. Titles must never be truncated with "...". Fix by removing whiteSpace:'nowrap' and textOverflow:'ellipsis', and if needed reduce fontSize so the text fits.
 
 **Out-of-bounds static element**: Element with hardcoded top + height > 1080 or left + width > 992. Fix by reducing the value.
 
@@ -204,6 +229,7 @@ const SCENE_CODE_TWEAK_SYSTEM_PROMPT = `You are a precise code editor for Remoti
 - oldStr must be an EXACT substring of the current code (whitespace-sensitive)
 - You can call edit_code multiple times for multi-part changes
 - Do NOT rewrite the entire function — only patch what's needed
+- NEVER use <img> tags or external URLs for logos/icons — they will 404 or be blocked by CORS. Instead, draw logos as inline SVG <svg> elements with <path> data directly in JSX. For well-known companies, reproduce their logo as a simplified SVG path or use basic SVG shapes.
 - After all edits, respond with a brief summary of what you changed`;
 
 const MAX_TWEAK_STEPS = 10;
@@ -260,16 +286,20 @@ Start by calling read_code to see the current animation, then use edit_code to m
 
 	onProgress?.({ phase: "generating", message: `Tweaking "${scene.name}"...` });
 
+	const searchTools = getGoogleSearchTool();
 	await tracedGenerateText({
 		model,
 		system: SCENE_CODE_TWEAK_SYSTEM_PROMPT,
 		...(messages ? { messages } : { prompt }),
 		temperature: 0.1,
 		stopWhen: stepCountIs(MAX_TWEAK_STEPS),
-		tools: createCodeEditorTools(
-			() => currentCode,
-			(c) => { currentCode = c; },
-		),
+		tools: {
+			...createCodeEditorTools(
+				() => currentCode,
+				(c) => { currentCode = c; },
+			),
+			...searchTools,
+		},
 		langfuse: {
 			name: "tweak-scene-code",
 			metadata: { sceneName: scene.name, sceneType: scene.type, hasImages: (images?.length ?? 0) > 0 },
@@ -413,11 +443,13 @@ ${sceneJson}`;
 	onProgress?.({ phase: "generating", message: `AI is coding scene "${scene.name}"...` });
 
 	const theme = getAnimationTheme();
+	const searchTools = getGoogleSearchTool();
 	const { text } = await tracedGenerateText({
 		model,
 		system: buildSceneCodeSystemPrompt(theme),
 		prompt: userPrompt,
 		temperature: 0.3,
+		...(searchTools ? { tools: searchTools, maxSteps: 2 } : {}),
 		langfuse: {
 			name: "generate-scene-code",
 			metadata: { sceneName: scene.name, sceneType: scene.type },

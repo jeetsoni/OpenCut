@@ -6,7 +6,7 @@
  * for just that scene.
  */
 
-import { buildModel } from "@/lib/ai/provider";
+import { buildModel, getGoogleSearchTool } from "@/lib/ai/provider";
 import { tracedGenerateText } from "@/lib/ai/tracing";
 import type { SceneBoundary } from "./boundaries";
 import type { PlannedScene } from "./schema";
@@ -68,6 +68,9 @@ When the speaker talks about a concept, you BUILD THE ACTUAL THING on screen —
 - Dashboard → build actual stat cards, mini charts, percentage changes
 
 If your visual description could be a bullet point on a PowerPoint slide, it's NOT visual enough. Every beat must describe a REAL UI or TECHNICAL VISUALIZATION with realistic content (real error messages, real code, real data).
+
+## Web Research (Google Search)
+You have access to Google Search. Use it when the transcript mentions specific technologies, companies, APIs, or tools that you need accurate details about — real API endpoints, real CLI commands, real error messages, real UI layouts. This makes your visual directions grounded in reality instead of generic placeholders. Search sparingly — only when you need factual accuracy for the visualization.
 
 ${SCENE_PLANNER_DESIGN_SYSTEM}
 
@@ -172,11 +175,13 @@ Remember:
 	onProgress?.({ phase: "generating", message: `AI is directing scene "${boundary.name}"...` });
 
 	const theme = getAnimationTheme();
+	const searchTools = getGoogleSearchTool();
 	const { text } = await tracedGenerateText({
 		model,
 		system: buildDirectionSystemPrompt(theme),
 		prompt: userPrompt,
 		temperature: 0.4,
+		...(searchTools ? { tools: searchTools, maxSteps: 2 } : {}),
 		langfuse: {
 			name: "generate-scene-direction",
 			metadata: { sceneName: boundary.name, sceneType: boundary.type },

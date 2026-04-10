@@ -198,6 +198,14 @@ export const ACTIONS = {
 		description: "Detect scene boundaries then generate direction + animation code for every scene",
 		category: "editing",
 	},
+	"regenerate-all-animations": {
+		description: "Clear all existing scene data and regenerate everything from scratch",
+		category: "editing",
+	},
+	"generate-remaining-animations": {
+		description: "Generate direction + code only for scenes that don't have them yet",
+		category: "editing",
+	},
 	"retranscribe-selection": {
 		description: "Re-transcribe selected clips to fix incomplete or inaccurate words",
 		category: "editing",

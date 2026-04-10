@@ -16,8 +16,8 @@
     "db:push:prod": "cross-env NODE_ENV=production drizzle-kit push"
   },
   "dependencies": {
-    "@ai-sdk/google": "^2.0.0",
-    "@ai-sdk/openai": "^2.0.0",
+    "@ai-sdk/google": "^3.0.61",
+    "@ai-sdk/openai": "^3.0.52",
     "@ffmpeg/core": "^0.12.10",
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
@@ -48,7 +48,7 @@
     "@upstash/ratelimit": "^2.0.6",
     "@upstash/redis": "^1.35.4",
     "@vercel/analytics": "^1.4.1",
-    "ai": "^6.0.0",
+    "ai": "^6.0.156",
     "aws4fetch": "^1.0.20",
     "better-auth": "^1.2.7",
     "botid": "^1.4.2",
