@@ -44,6 +44,8 @@ export interface AIProviderConfig {
 	modelOverrides?: AIModelOverrides;
 	/** Skip the agentic layout review pass after code generation (faster, less thorough). */
 	skipLayoutReview?: boolean;
+	/** Skip the vision review pass (screenshot-based layout QA). Disabled by default. */
+	skipVisionReview?: boolean;
 	/** Groq API key for fast cloud transcription (whisper-large-v3). */
 	groqApiKey?: string;
 	/** Language hint for transcription (e.g. "hi" for Hindi). */

@@ -7,7 +7,7 @@ const webEnvSchema = z.object({
 	NEXT_RUNTIME: z.enum(["nodejs", "edge"]).optional(),
 
 	// Public
-	NEXT_PUBLIC_SITE_URL: z.url().default("http://localhost:3000"),
+	NEXT_PUBLIC_SITE_URL: z.url().default("http://localhost:3001"),
 	NEXT_PUBLIC_MARBLE_API_URL: z.url(),
 
 	// Server

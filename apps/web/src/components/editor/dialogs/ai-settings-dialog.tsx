@@ -73,6 +73,7 @@ export function AISettingsDialog({
 	const [transcriptionLanguage, setTranscriptionLanguage] = useState("");
 	const [modelOverrides, setModelOverrides] = useState<AIModelOverrides>({});
 	const [skipLayoutReview, setSkipLayoutReview] = useState(false);
+	const [skipVisionReview, setSkipVisionReview] = useState(true);
 	const [showAdvanced, setShowAdvanced] = useState(false);
 	const [selectedTheme, setSelectedTheme] = useState<AnimationTheme>(DEFAULT_THEME);
 
@@ -88,6 +89,7 @@ export function AISettingsDialog({
 				setTranscriptionLanguage(config.transcriptionLanguage ?? "");
 				setModelOverrides(config.modelOverrides ?? {});
 				setSkipLayoutReview(config.skipLayoutReview ?? false);
+				setSkipVisionReview(config.skipVisionReview ?? true);
 			}
 			setSelectedTheme(getAnimationTheme());
 		}
@@ -103,6 +105,7 @@ export function AISettingsDialog({
 			transcriptionLanguage: transcriptionLanguage || undefined,
 			modelOverrides: Object.keys(modelOverrides).length > 0 ? modelOverrides : undefined,
 			skipLayoutReview: skipLayoutReview || undefined,
+			skipVisionReview: skipVisionReview || undefined,
 		});
 		setAnimationTheme(selectedTheme);
 		onOpenChange(false);
@@ -241,6 +244,24 @@ export function AISettingsDialog({
 								</label>
 								<p className="text-muted-foreground text-xs mt-0.5">
 									Removes the agentic review step after code generation. Faster, but may produce occasional overflow or positioning bugs.
+								</p>
+							</div>
+						</div>
+
+						<div className="flex items-start gap-2 pt-1">
+							<input
+								id="skip-vision-review"
+								type="checkbox"
+								checked={skipVisionReview}
+								onChange={(e) => setSkipVisionReview(e.target.checked)}
+								className="mt-0.5 accent-primary"
+							/>
+							<div>
+								<label htmlFor="skip-vision-review" className="text-xs font-medium cursor-pointer">
+									Skip vision review pass
+								</label>
+								<p className="text-muted-foreground text-xs mt-0.5">
+									Disables screenshot-based layout QA. Enable only if your model supports vision/images.
 								</p>
 							</div>
 						</div>

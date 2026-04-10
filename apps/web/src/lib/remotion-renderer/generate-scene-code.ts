@@ -396,6 +396,7 @@ export async function generateSceneRemotionCode({
 
 	const model = buildModel({ gemini: "gemini-2.5-pro-preview-06-05", feature: "codeGen" });
 	const skipReview = getAIProviderConfig()?.skipLayoutReview ?? false;
+	const skipVisionReview = getAIProviderConfig()?.skipVisionReview ?? true;
 	const sceneJson = JSON.stringify(scene, null, 1);
 
 	const userPrompt = `Generate a Remotion component for this single scene. The component receives the scene object as a prop called "scene".
@@ -434,21 +435,23 @@ ${sceneJson}`;
 	}
 
 	// Vision-based review — captures actual rendered frames and fixes visual bugs
-	try {
-		onProgress?.({ phase: "generating", message: `Visual review for "${scene.name}"...` });
-		const frames = await captureSceneFrames(code, scene);
-		if (frames.length > 0) {
-			const issues = await visionReviewFrames(frames, scene.name);
-			const hasIssues = !issues.toLowerCase().includes("no visual issues");
-			if (hasIssues) {
-				console.warn(`[VisionReview] Scene "${scene.name}" issues found:\n${issues}`);
-				onProgress?.({ phase: "generating", message: `Fixing visual issues for "${scene.name}"...` });
-				code = await fixWithVisionFeedback(code, issues, scene.name);
+	if (!skipVisionReview) {
+		try {
+			onProgress?.({ phase: "generating", message: `Visual review for "${scene.name}"...` });
+			const frames = await captureSceneFrames(code, scene);
+			if (frames.length > 0) {
+				const issues = await visionReviewFrames(frames, scene.name);
+				const hasIssues = !issues.toLowerCase().includes("no visual issues");
+				if (hasIssues) {
+					console.warn(`[VisionReview] Scene "${scene.name}" issues found:\n${issues}`);
+					onProgress?.({ phase: "generating", message: `Fixing visual issues for "${scene.name}"...` });
+					code = await fixWithVisionFeedback(code, issues, scene.name);
+				}
 			}
+		} catch (err) {
+			// Vision review is best-effort — never fail the overall pipeline
+			console.warn(`[VisionReview] Skipped for "${scene.name}":`, err);
 		}
-	} catch (err) {
-		// Vision review is best-effort — never fail the overall pipeline
-		console.warn(`[VisionReview] Skipped for "${scene.name}":`, err);
 	}
 
 	onProgress?.({ phase: "done", message: `Code ready for "${scene.name}"` });
