@@ -149,6 +149,7 @@ export function AISettingsDialog({
 							</SelectTrigger>
 							<SelectContent>
 								<SelectItem value="gemini">Google Gemini</SelectItem>
+								<SelectItem value="openrouter">OpenRouter</SelectItem>
 								<SelectItem value="openai">OpenAI / Compatible</SelectItem>
 							</SelectContent>
 						</Select>
@@ -160,7 +161,13 @@ export function AISettingsDialog({
 							type="password"
 							value={apiKey}
 							onChange={(e) => setApiKey(e.target.value)}
-							placeholder={provider === "gemini" ? "AIza..." : "sk-..."}
+							placeholder={
+								provider === "gemini" 
+									? "AIza..." 
+									: provider === "openrouter"
+									? "sk-or-v1-..."
+									: "sk-..."
+							}
 							size="sm"
 						/>
 					</div>
@@ -176,10 +183,27 @@ export function AISettingsDialog({
 							value={model}
 							onChange={(e) => setModel(e.target.value)}
 							placeholder={
-								provider === "gemini" ? "gemini-2.0-flash" : "gpt-4o-mini"
+								provider === "gemini" 
+									? "gemini-2.0-flash" 
+									: provider === "openrouter"
+									? "anthropic/claude-3.5-sonnet"
+									: "gpt-4o-mini"
 							}
 							size="sm"
 						/>
+						{provider === "openrouter" && (
+							<p className="text-muted-foreground text-xs">
+								Browse models at{" "}
+								<a 
+									href="https://openrouter.ai/models" 
+									target="_blank" 
+									rel="noopener noreferrer"
+									className="underline hover:text-foreground"
+								>
+									openrouter.ai/models
+								</a>
+							</p>
+						)}
 					</div>
 
 					{provider === "openai" && (

@@ -8,6 +8,7 @@
 
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
+import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { getAIProviderConfig, type AIModelOverrides } from "@/lib/ai-provider";
 
 /**
@@ -38,6 +39,11 @@ export function buildModel(defaults?: {
 	if (config.provider === "gemini") {
 		const google = createGoogleGenerativeAI({ apiKey: config.apiKey });
 		return google(featureOverride || config.model || defaults?.gemini || "gemini-2.0-flash");
+	}
+
+	if (config.provider === "openrouter") {
+		const openrouter = createOpenRouter({ apiKey: config.apiKey });
+		return openrouter.chat(featureOverride || config.model || defaults?.openai || "anthropic/claude-3.5-sonnet");
 	}
 
 	const openai = createOpenAI({

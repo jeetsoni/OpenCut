@@ -2,16 +2,17 @@
  * Lightweight LLM + transcription provider for in-browser AI features.
  *
  * The user supplies their own API keys (stored in localStorage).
- * Supports: OpenAI-compatible, Google Gemini (for LLM), and Groq (for fast transcription).
+ * Supports: OpenAI, OpenRouter, Google Gemini (for LLM), and Groq (for fast transcription).
  */
 
 import { generateText } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
+import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 
 const STORAGE_KEY = "opencut:ai-provider";
 
-export type AIProviderType = "openai" | "gemini";
+export type AIProviderType = "openai" | "gemini" | "openrouter";
 
 /**
  * Per-feature model overrides.
@@ -83,6 +84,9 @@ export async function promptLLM({ prompt }: { prompt: string }): Promise<string>
 	if (config.provider === "gemini") {
 		const google = createGoogleGenerativeAI({ apiKey: config.apiKey });
 		model = google(config.model || "gemini-2.0-flash");
+	} else if (config.provider === "openrouter") {
+		const openrouter = createOpenRouter({ apiKey: config.apiKey });
+		model = openrouter.chat(config.model || "anthropic/claude-3.5-sonnet");
 	} else {
 		const openai = createOpenAI({
 			apiKey: config.apiKey,
