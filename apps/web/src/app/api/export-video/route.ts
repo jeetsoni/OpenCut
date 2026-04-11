@@ -141,6 +141,7 @@ const AbsoluteFill = ({ children, style, ...props }) => {
     style: {
       position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
       display: 'flex', flexDirection: 'column',
+      fontFamily: "'Inter', system-ui, -apple-system, sans-serif",
       ...style,
     },
   }, children);
@@ -423,8 +424,11 @@ function buildAnimationPage({
 <html>
 <head>
 <meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
-  * { margin: 0; padding: 0; }
+  * { margin: 0; padding: 0; font-family: 'Inter', system-ui, -apple-system, sans-serif; }
   html, body { width: ${width}px; height: ${height}px; overflow: hidden; background: transparent; }
   #root { width: ${width}px; height: ${height}px; position: relative; }
 </style>
@@ -564,8 +568,24 @@ __define("scheduler", function(module, exports) {
 		});
 		page.on("pageerror", (err: unknown) => pageErrors.push(err instanceof Error ? err.message : String(err)));
 
-		// Load the base HTML
-		await page.setContent(html, { waitUntil: "domcontentloaded", timeout: 10000 });
+		// Load the base HTML. networkidle0 ensures Google Fonts CSS is fetched.
+		// Fall back to domcontentloaded if it times out (e.g. no internet on server).
+		try {
+			await page.setContent(html, { waitUntil: "networkidle0", timeout: 8000 });
+		} catch {
+			await page.setContent(html, { waitUntil: "domcontentloaded", timeout: 10000 });
+		}
+
+		// Wait for fonts to be ready so text metrics match the browser preview.
+		// 3s max — if Google Fonts didn't load we still proceed with fallback fonts.
+		try {
+			await Promise.race([
+				page.evaluate(() => document.fonts.ready),
+				new Promise<void>((resolve) => setTimeout(resolve, 3000)),
+			]);
+		} catch {
+			// ignore
+		}
 
 		// Inject the CJS require shim modules
 		await page.evaluate(schedulerShim);
@@ -1142,6 +1162,11 @@ export async function POST(request: NextRequest) {
 		const outputPath = path.join(tmpDir, `output${ext}`);
 
 		const hasAnimations = animationScenes.length > 0;
+
+		// Debug: log received animation scenes to verify tweaked code is being sent
+		for (const s of animationScenes) {
+			console.log(`[export-video] Scene ${s.sceneId}: code.length=${s.code?.length ?? 0}, snippet="${String(s.code ?? "").slice(0, 100)}"`);
+		}
 
 		// Stream progress via SSE-style response, then binary data
 		const stream = new ReadableStream({

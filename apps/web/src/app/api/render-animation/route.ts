@@ -72,6 +72,11 @@ export async function POST(request: NextRequest) {
 			);
 		}
 
+		// Debug: log what code we received to verify tweaks are being sent
+		for (const s of scenes) {
+			console.log(`[render-animation] Scene ${s.sceneId}: code.length=${s.code?.length ?? 0}, snippet="${String(s.code ?? "").slice(0, 100)}"`);
+		}
+
 		// Convert seconds → frames for the Remotion composition
 		const totalFrames = Math.max(1, Math.round(duration * fps));
 		const scenesWithFrames = scenes.map(
@@ -81,6 +86,9 @@ export async function POST(request: NextRequest) {
 				durationFrames: Math.max(1, Math.round((s.endTime - s.startTime) * fps)),
 			}),
 		);
+
+		// Pass the Next.js server origin so the composition can load fonts via absolute URL
+		const nextjsOrigin = `${request.nextUrl.protocol}//${request.nextUrl.host}`;
 
 		const outputPath = path.join(tmpDir, "animation.mp4");
 
@@ -128,6 +136,8 @@ export async function POST(request: NextRequest) {
 					scenes: scenesWithFrames,
 					// faceVideoPath is already an HTTP URL built by the client
 					...(faceVideoPath ? { faceVideoUrl: faceVideoPath } : {}),
+					// Pass the Next.js server origin so the composition can load fonts
+					nextjsOrigin,
 				};
 
 					const composition = await selectComposition({

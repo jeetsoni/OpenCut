@@ -63,6 +63,7 @@ export async function gatherAnimationScenes({
 			getSceneRemotionCode({ projectId, sceneId: b.id }),
 		]);
 		if (!direction || !codeResult) continue;
+		console.log(`[gatherAnimationScenes] Scene ${b.id}: code.length=${codeResult.code.length}, createdAt=${codeResult.createdAt}, snippet="${codeResult.code.slice(0, 80)}"`);
 		scenes.push({
 			sceneId: b.id,
 			code: codeResult.code,
@@ -322,6 +323,11 @@ export async function exportAnimationOnly({
 	const animationScenes = await gatherAnimationScenes({ projectId });
 	if (animationScenes.length === 0) {
 		return { success: false, error: "No animation scenes found for this project" };
+	}
+
+	console.log(`[exportAnimationOnly] Sending ${animationScenes.length} scene(s) to server`);
+	for (const s of animationScenes) {
+		console.log(`[exportAnimationOnly] Scene ${s.sceneId}: code.length=${s.code.length}, snippet="${s.code.slice(0, 100)}"`);
 	}
 
 	// Use @remotion/renderer for frame-accurate, smooth animation rendering

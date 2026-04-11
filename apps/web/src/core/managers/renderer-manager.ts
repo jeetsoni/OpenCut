@@ -10,7 +10,6 @@ import { buildScene } from "@/services/renderer/scene-builder";
 import { createTimelineAudioBuffer } from "@/lib/media/audio";
 import { formatTimeCode, getLastFrameTime } from "@/lib/time";
 import { downloadBlob } from "@/utils/browser";
-import { usePreviewStore } from "@/stores/preview-store";
 
 export class RendererManager {
 	private renderTree: RootNode | null = null;
@@ -119,18 +118,20 @@ export class RendererManager {
 			const canvasSize = activeProject.settings.canvasSize;
 			const projectId = activeProject.metadata.id;
 
-			// Check if animations are present
-			const animationsEnabled = usePreviewStore.getState().overlays.animations;
+			// Gather animation scenes unconditionally — the preview overlay toggle
+			// controls visibility in the editor but must not gate the export.
 			let animationScenes: import("@/services/renderer/server-export").AnimationSceneData[] = [];
-			if (animationsEnabled) {
-				try {
-					const { gatherAnimationScenes } = await import(
-						"@/services/renderer/server-export"
-					);
-					animationScenes = await gatherAnimationScenes({ projectId });
-				} catch (err) {
-					console.warn("[Export] Failed to gather animations:", err);
+			try {
+				const { gatherAnimationScenes } = await import(
+					"@/services/renderer/server-export"
+				);
+				animationScenes = await gatherAnimationScenes({ projectId });
+				console.log(`[Export] Gathered ${animationScenes.length} animation scene(s) for project ${projectId}`);
+				for (const s of animationScenes) {
+					console.log(`[Export] Scene ${s.sceneId}: code length=${s.code.length}, first 120 chars:`, s.code.slice(0, 120));
 				}
+			} catch (err) {
+				console.warn("[Export] Failed to gather animations:", err);
 			}
 
 			const hasAnimations = animationScenes.length > 0;

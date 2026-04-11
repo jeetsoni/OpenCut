@@ -25,6 +25,8 @@ import {
 	Easing,
 	staticFile,
 	registerRoot,
+	continueRender,
+	delayRender,
 } from "remotion";
 import { transform } from "sucrase";
 
@@ -61,6 +63,8 @@ interface AnimationProps {
 	scenes: SceneInput[];
 	/** Server-accessible URL for the face cam video (optional — PIP mode only) */
 	faceVideoUrl?: string;
+	/** Next.js server origin (e.g. http://localhost:3000) for loading static assets like fonts */
+	nextjsOrigin?: string;
 }
 
 /**
@@ -81,6 +85,17 @@ function compileCode(code: string): React.FC<{ scene: SceneDirection }> | null {
 			production: true,
 		}).code;
 
+		// Wrap AbsoluteFill to inject Inter as the default font family,
+		// matching the browser preview's font rendering.
+		const WrappedAbsoluteFill = ({ children, style, ...props }: React.ComponentProps<typeof AbsoluteFill>) =>
+			React.createElement(AbsoluteFill, {
+				...props,
+				style: {
+					fontFamily: "'Inter', system-ui, -apple-system, sans-serif",
+					...style,
+				},
+			}, children);
+
 		const scopeKeys = [
 			"React", "useState", "useEffect", "useMemo", "useCallback",
 			"AbsoluteFill", "Sequence", "Audio", "useCurrentFrame", "useVideoConfig",
@@ -88,7 +103,7 @@ function compileCode(code: string): React.FC<{ scene: SceneDirection }> | null {
 		];
 		const scopeValues = [
 			React, React.useState, React.useEffect, React.useMemo, React.useCallback,
-			AbsoluteFill, Sequence, Audio, useCurrentFrame, useVideoConfig,
+			WrappedAbsoluteFill, Sequence, Audio, useCurrentFrame, useVideoConfig,
 			interpolate, spring, Easing, staticFile,
 		];
 
@@ -160,8 +175,35 @@ function FadingScene({
  * Non-last scenes are extended by CROSSFADE_FRAMES so outgoing and incoming
  * animations overlap and cross-dissolve at every scene boundary.
  */
-function AnimationRoot({ scenes, faceVideoUrl }: AnimationProps) {
+function AnimationRoot({ scenes, faceVideoUrl, nextjsOrigin }: AnimationProps) {
 	const { width, height } = useVideoConfig();
+
+	// Load Inter font so text metrics match the browser preview.
+	// Uses absolute URLs pointing to the Next.js server's static assets.
+	// delayRender/continueRender tells Remotion to wait for fonts before capturing frames.
+	const [fontHandle] = React.useState(() => delayRender("Loading Inter font"));
+	React.useEffect(() => {
+		const base = nextjsOrigin ?? "";
+		const style = document.createElement("style");
+		style.textContent = `
+			@font-face { font-family: 'Inter'; src: url('${base}/fonts/Inter-Regular.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: block; }
+			@font-face { font-family: 'Inter'; src: url('${base}/fonts/Inter-Medium.ttf') format('truetype'); font-weight: 500; font-style: normal; font-display: block; }
+			@font-face { font-family: 'Inter'; src: url('${base}/fonts/Inter-SemiBold.ttf') format('truetype'); font-weight: 600; font-style: normal; font-display: block; }
+			@font-face { font-family: 'Inter'; src: url('${base}/fonts/Inter-Bold.ttf') format('truetype'); font-weight: 700; font-style: normal; font-display: block; }
+			@font-face { font-family: 'Inter'; src: url('${base}/fonts/Inter-ExtraBold.ttf') format('truetype'); font-weight: 800; font-style: normal; font-display: block; }
+			@font-face { font-family: 'Inter'; src: url('${base}/fonts/Inter-Black.ttf') format('truetype'); font-weight: 900; font-style: normal; font-display: block; }
+			*, *::before, *::after { font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important; box-sizing: border-box; }
+		`;
+		document.head.appendChild(style);
+
+		document.fonts.ready
+			.then(() => continueRender(fontHandle))
+			.catch(() => continueRender(fontHandle));
+
+		const timeout = setTimeout(() => continueRender(fontHandle), 5000);
+		return () => clearTimeout(timeout);
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
 	const compiledScenes = React.useMemo(() => {
 		return scenes
 			.map((s) => ({
@@ -237,7 +279,7 @@ function RemotionRoot() {
 			fps={30}
 			width={1080}
 			height={1920}
-			defaultProps={{ scenes: [] as SceneInput[], faceVideoUrl: undefined }}
+			defaultProps={{ scenes: [] as SceneInput[], faceVideoUrl: undefined, nextjsOrigin: undefined }}
 		/>
 	);
 }
