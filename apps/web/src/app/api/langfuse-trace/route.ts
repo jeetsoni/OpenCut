@@ -23,6 +23,7 @@ interface TracePayload {
 	input?: string;
 	output?: string;
 	metadata?: Record<string, unknown>;
+	tags?: string[];
 }
 
 export async function POST(request: NextRequest) {
@@ -35,7 +36,7 @@ export async function POST(request: NextRequest) {
 		}
 
 		const body = (await request.json()) as TracePayload;
-		const { name, sessionId, modelId, usage, input, output, metadata } = body;
+		const { name, sessionId, modelId, usage, input, output, metadata, tags } = body;
 
 		// Create a fresh instance per request to ensure clean flush in serverless
 		const lf = new Langfuse({
@@ -48,6 +49,7 @@ export async function POST(request: NextRequest) {
 			name,
 			sessionId,
 			metadata: { ...metadata, modelId },
+			tags: tags ?? [],
 		});
 
 		trace.generation({

@@ -13,10 +13,12 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useEditor } from "@/hooks/use-editor";
 import {
 	getProjectTranscript,
+	setProjectTranscript,
 	deleteProjectTranscript,
 } from "@/lib/transcription/transcript-store";
 import type { ProjectTranscript, TranscriptionWord } from "@/types/transcription";
 import { invokeAction } from "@/lib/actions";
+import { toast } from "sonner";
 
 export function TranscriptDialog({
 	isOpen,
@@ -62,6 +64,29 @@ export function TranscriptDialog({
 		editor.playback.seek({ time: word.start });
 	};
 
+	const handleWordUpdate = useCallback(
+		async (index: number, newText: string) => {
+			if (!transcript || !projectId) return;
+
+			const updatedWords = [...transcript.words];
+			updatedWords[index] = { ...updatedWords[index], word: newText };
+
+			// Rebuild the full text from updated words
+			const updatedText = updatedWords.map((w) => w.word).join(" ");
+
+			const updatedTranscript: ProjectTranscript = {
+				...transcript,
+				words: updatedWords,
+				text: updatedText,
+			};
+
+			setTranscript(updatedTranscript);
+			await setProjectTranscript({ projectId, transcript: updatedTranscript });
+			toast.success("Word updated");
+		},
+		[transcript, projectId],
+	);
+
 	const handleCopyText = async () => {
 		if (!transcript) return;
 		await navigator.clipboard.writeText(transcript.text);
@@ -90,7 +115,7 @@ export function TranscriptDialog({
 					<DialogTitle>Transcript</DialogTitle>
 					<DialogDescription>
 						{transcript
-							? `${transcript.words.length} words · ${transcript.duration.toFixed(1)}s · Click any word to seek`
+							? `${transcript.words.length} words · ${transcript.duration.toFixed(1)}s · Click to seek · Double-click to edit`
 							: "Generate a word-level transcript from your timeline audio"}
 					</DialogDescription>
 				</DialogHeader>
@@ -105,6 +130,7 @@ export function TranscriptDialog({
 							words={transcript.words}
 							wordRefs={wordRefs}
 							onWordClick={handleWordClick}
+							onWordUpdate={handleWordUpdate}
 							editor={editor}
 						/>
 					) : (
@@ -150,14 +176,19 @@ function TranscriptWordView({
 	words,
 	wordRefs,
 	onWordClick,
+	onWordUpdate,
 	editor,
 }: {
 	words: TranscriptionWord[];
 	wordRefs: React.MutableRefObject<Map<number, HTMLSpanElement>>;
 	onWordClick: (word: TranscriptionWord) => void;
+	onWordUpdate: (index: number, newText: string) => void;
 	editor: ReturnType<typeof useEditor>;
 }) {
 	const [currentTime, setCurrentTime] = useState(0);
+	const [editingIndex, setEditingIndex] = useState<number | null>(null);
+	const [editValue, setEditValue] = useState("");
+	const editInputRef = useRef<HTMLInputElement>(null);
 
 	useEffect(() => {
 		// Poll playback time to highlight the active word
@@ -166,6 +197,34 @@ function TranscriptWordView({
 		}, 100);
 		return () => clearInterval(interval);
 	}, [editor]);
+
+	// Auto-focus the input when editing starts
+	useEffect(() => {
+		if (editingIndex !== null && editInputRef.current) {
+			editInputRef.current.focus();
+			editInputRef.current.select();
+		}
+	}, [editingIndex]);
+
+	const startEditing = (index: number, word: string) => {
+		setEditingIndex(index);
+		setEditValue(word);
+	};
+
+	const commitEdit = () => {
+		if (editingIndex === null) return;
+		const trimmed = editValue.trim();
+		if (trimmed && trimmed !== words[editingIndex].word) {
+			onWordUpdate(editingIndex, trimmed);
+		}
+		setEditingIndex(null);
+		setEditValue("");
+	};
+
+	const cancelEdit = () => {
+		setEditingIndex(null);
+		setEditValue("");
+	};
 
 	// Find the currently active word index
 	const activeIndex = words.findIndex(
@@ -177,6 +236,34 @@ function TranscriptWordView({
 			<p className="leading-relaxed text-sm flex flex-wrap gap-x-1 gap-y-0.5">
 				{words.map((word, i) => {
 					const isActive = i === activeIndex;
+					const isEditing = i === editingIndex;
+
+					if (isEditing) {
+						return (
+							<input
+								key={i}
+								ref={editInputRef}
+								type="text"
+								value={editValue}
+								onChange={(e) => setEditValue(e.target.value)}
+								onBlur={commitEdit}
+								onKeyDown={(e) => {
+									if (e.key === "Enter") {
+										e.preventDefault();
+										commitEdit();
+									} else if (e.key === "Escape") {
+										e.preventDefault();
+										cancelEdit();
+									}
+								}}
+								className="bg-primary/10 border-primary text-primary rounded border px-1 py-0 text-sm font-medium outline-none"
+								style={{
+									width: `${Math.max(editValue.length, 2) + 1}ch`,
+								}}
+							/>
+						);
+					}
+
 					return (
 						<span
 							key={i}
@@ -187,6 +274,7 @@ function TranscriptWordView({
 							role="button"
 							tabIndex={0}
 							onClick={() => onWordClick(word)}
+							onDoubleClick={() => startEditing(i, word.word)}
 							onKeyDown={(e) => {
 								if (e.key === "Enter" || e.key === " ") onWordClick(word);
 							}}
@@ -195,7 +283,7 @@ function TranscriptWordView({
 									? "bg-primary/20 text-primary font-medium"
 									: "text-foreground"
 							}`}
-							title={`${word.start.toFixed(2)}s – ${word.end.toFixed(2)}s`}
+							title={`${word.start.toFixed(2)}s – ${word.end.toFixed(2)}s · Double-click to edit`}
 						>
 							{word.word}
 						</span>

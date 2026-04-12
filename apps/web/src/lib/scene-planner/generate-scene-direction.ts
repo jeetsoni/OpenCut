@@ -124,11 +124,13 @@ export async function generateSceneDirection({
 	transcript,
 	previousDirection,
 	onProgress,
+	pipelineRunId,
 }: {
 	boundary: SceneBoundary;
 	transcript: ProjectTranscript;
 	previousDirection?: PlannedScene;
 	onProgress?: (progress: DirectionProgress) => void;
+	pipelineRunId?: string;
 }): Promise<PlannedScene> {
 	onProgress?.({ phase: "preparing", message: `Preparing scene "${boundary.name}"...` });
 
@@ -185,6 +187,7 @@ Remember:
 		langfuse: {
 			name: "generate-scene-direction",
 			metadata: { sceneName: boundary.name, sceneType: boundary.type },
+			pipelineRunId,
 		},
 	});
 

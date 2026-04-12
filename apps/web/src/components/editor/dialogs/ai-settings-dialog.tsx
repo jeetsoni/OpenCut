@@ -52,9 +52,9 @@ const ACCENT_KEYS: { key: keyof AnimationTheme["accents"]; label: string }[] = [
 const FEATURE_LABELS: { key: keyof AIModelOverrides; label: string; hint: string; defaultGemini: string }[] = [
 	{ key: "boundaryDetect", label: "Boundary Detection", hint: "Splits transcript into scenes. Flash is sufficient.", defaultGemini: "gemini-2.5-flash" },
 	{ key: "sceneDirection", label: "Scene Direction", hint: "Generates animation beats and layout per scene. Flash is sufficient.", defaultGemini: "gemini-2.5-flash" },
-	{ key: "codeGen", label: "Code Generation", hint: "Writes the Remotion component. Pro gives better results.", defaultGemini: "gemini-2.5-pro-preview-06-05" },
+	{ key: "codeGen", label: "Code Generation", hint: "Writes the Remotion component. Pro gives better results.", defaultGemini: "gemini-2.5-pro" },
 	{ key: "codeReview", label: "Layout Review", hint: "Agentic pass that fixes overflow/overlap bugs in generated code. Flash is fine.", defaultGemini: "gemini-2.5-flash" },
-	{ key: "tweak", label: "Tweak", hint: "Surgical edits to existing animations. Pro recommended.", defaultGemini: "gemini-2.5-pro-preview-06-05" },
+	{ key: "tweak", label: "Tweak", hint: "Surgical edits to existing animations. Pro recommended.", defaultGemini: "gemini-2.5-pro" },
 	{ key: "visionReview", label: "Vision Review", hint: "Inspects rendered screenshots for layout bugs. Must be a vision-capable model. Flash is fast and sufficient.", defaultGemini: "gemini-2.0-flash" },
 ];
 

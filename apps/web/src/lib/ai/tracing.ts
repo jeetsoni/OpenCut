@@ -15,6 +15,8 @@ export interface LangfuseTraceOptions {
 	name: string;
 	/** Optional extra metadata attached to the trace */
 	metadata?: Record<string, unknown>;
+	/** Optional pipeline run ID to group all traces from a single video generation */
+	pipelineRunId?: string;
 }
 
 /**
@@ -68,7 +70,11 @@ export async function tracedGenerateText(
 		name: lfOpts.name,
 		sessionId: getSessionId(),
 		modelId,
-		metadata: lfOpts.metadata,
+		metadata: {
+			...lfOpts.metadata,
+			...(lfOpts.pipelineRunId ? { pipelineRunId: lfOpts.pipelineRunId } : {}),
+		},
+		tags: lfOpts.pipelineRunId ? [lfOpts.pipelineRunId] : undefined,
 		usage: result.usage
 			? {
 					inputTokens: result.usage.inputTokens ?? 0,

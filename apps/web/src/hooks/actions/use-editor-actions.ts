@@ -1224,6 +1224,7 @@ export function useEditorActions() {
 
 					const scenes = boundaries.boundaries;
 					const total = scenes.length;
+					const pipelineRunId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 					// Phase 1: Sequential direction generation — each scene gets the
 					// previous scene's direction as context for narrative continuity.
@@ -1238,6 +1239,7 @@ export function useEditorActions() {
 							transcript,
 							previousDirection: directions[i - 1],
 							onProgress: (p) => toast.loading(p.message, { id: toastId }),
+							pipelineRunId,
 						});
 						await setSceneDirection({ projectId, sceneId, direction });
 						await useSceneStore.getState().refreshScene(projectId, sceneId);
@@ -1252,6 +1254,7 @@ export function useEditorActions() {
 							const sceneId = boundary.id;
 							const code = await generateSceneRemotionCode({
 								scene: directions[i],
+								pipelineRunId,
 							});
 							await setSceneRemotionCode({ projectId, sceneId, code });
 							await useSceneStore.getState().refreshScene(projectId, sceneId);
@@ -1376,6 +1379,7 @@ export function useEditorActions() {
 
 					const scenes = boundaries.boundaries;
 					const total = scenes.length;
+					const pipelineRunId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 					// Phase 1: Sequential direction generation
 					toast.loading(`Generating directions (1/${total})...`, { id: toastId });
@@ -1389,6 +1393,7 @@ export function useEditorActions() {
 							transcript,
 							previousDirection: directions[i - 1],
 							onProgress: (p) => toast.loading(p.message, { id: toastId }),
+							pipelineRunId,
 						});
 						await setSceneDirection({ projectId, sceneId, direction });
 						await useSceneStore.getState().refreshScene(projectId, sceneId);
@@ -1402,6 +1407,7 @@ export function useEditorActions() {
 							const sceneId = boundary.id;
 							const code = await generateSceneRemotionCode({
 								scene: directions[i],
+								pipelineRunId,
 							});
 							await setSceneRemotionCode({ projectId, sceneId, code });
 							await useSceneStore.getState().refreshScene(projectId, sceneId);
@@ -1491,6 +1497,8 @@ export function useEditorActions() {
 						return;
 					}
 
+					const pipelineRunId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
 					// Phase 1: Sequential direction generation for scenes missing it
 					// We need to build the full direction chain for continuity context
 					if (needsDirection.length > 0) {
@@ -1511,6 +1519,7 @@ export function useEditorActions() {
 								transcript,
 								previousDirection,
 								onProgress: (p) => toast.loading(p.message, { id: toastId }),
+								pipelineRunId,
 							});
 							await setSceneDirection({ projectId, sceneId: boundary.id, direction });
 							await useSceneStore.getState().refreshScene(projectId, boundary.id);
@@ -1534,7 +1543,7 @@ export function useEditorActions() {
 						toast.loading(`Generating code for ${toGenerate.length} scene(s) in parallel...`, { id: toastId });
 						await Promise.all(
 							toGenerate.map(async (s) => {
-								const code = await generateSceneRemotionCode({ scene: s.direction! });
+								const code = await generateSceneRemotionCode({ scene: s.direction!, pipelineRunId });
 								await setSceneRemotionCode({ projectId, sceneId: s.boundary.id, code });
 								await useSceneStore.getState().refreshScene(projectId, s.boundary.id);
 							}),

@@ -124,9 +124,18 @@ These rules apply to STATIC layout only. Animated elements (using interpolate/sp
 1. function Main({ scene }) — frame 0 = scene start
 2. beat.frameRange is ABSOLUTE — subtract scene.startFrame to get relative frame
 3. Inline styles only — no CSS imports, no Tailwind
-4. Keep code under 450 lines
+4. Keep code under 300 lines — write DRY, compact code
 5. Return ONLY the code — no markdown fences, no explanation
 6. ALWAYS add a global scene entry fade: compute \`const sceneEnterOpacity = interpolate(frame, [0, 8], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });\` and apply \`opacity: sceneEnterOpacity\` to the outermost content div. This prevents elements from popping in cold on scene entry. Do NOT add a fade-out — the overlay handles scene exit transitions.
+
+## Code Compactness (mandatory — reduces cost without affecting visuals)
+- NO code comments — zero comments, the code must speak for itself
+- Extract repeated style objects into shared const variables at the top of Main (e.g. const cardStyle = {...}; then reuse)
+- Extract repeated interpolate/spring patterns into helper functions or variables
+- Use short variable names for internal helpers (e.g. \`sp\` for spring config, \`ip\` for interpolate wrapper)
+- For SVG icons, use the simplest recognizable path — avoid overly detailed paths when a simpler version looks identical at 60-72px
+- Combine adjacent elements that share the same animation timing into a single wrapper div
+- If multiple cards share the same structure, use a .map() over a data array instead of repeating JSX
 
 ## Web Research (Google Search)
 You have access to Google Search. Use it when the scene references specific technologies, companies, APIs, libraries, or tools — search for accurate details like real SVG logos, real CLI output, real API response shapes, real UI patterns. This helps you produce visuals grounded in reality. Search sparingly and only when factual accuracy matters for the visualization.
@@ -256,7 +265,7 @@ export async function tweakSceneRemotionCode({
 }): Promise<string> {
 	onProgress?.({ phase: "preparing", message: `Preparing tweak for "${scene.name}"...` });
 
-	const model = buildModel({ gemini: "gemini-2.5-pro-preview-06-05", feature: "tweak" });
+	const model = buildModel({ gemini: "gemini-2.5-pro", feature: "tweak" });
 	let currentCode = existingCode;
 
 	const textPrompt = `The user wants to tweak the animation for scene "${scene.name}" (${scene.type}, ${scene.startTime.toFixed(1)}s–${scene.endTime.toFixed(1)}s).
@@ -370,7 +379,7 @@ async function fixWithVisionFeedback(
 	issues: string,
 	sceneName: string,
 ): Promise<string> {
-	const model = buildModel({ gemini: "gemini-2.5-pro-preview-06-05" });
+	const model = buildModel({ gemini: "gemini-2.5-pro" });
 	let currentCode = code;
 
 	await tracedGenerateText({
@@ -418,13 +427,15 @@ function buildSceneCodeSystemPrompt(theme: AnimationTheme): string {
 export async function generateSceneRemotionCode({
 	scene,
 	onProgress,
+	pipelineRunId,
 }: {
 	scene: PlannedScene;
 	onProgress?: (progress: SceneCodeGenProgress) => void;
+	pipelineRunId?: string;
 }): Promise<string> {
 	onProgress?.({ phase: "preparing", message: `Preparing scene "${scene.name}"...` });
 
-	const model = buildModel({ gemini: "gemini-2.5-pro-preview-06-05", feature: "codeGen" });
+	const model = buildModel({ gemini: "gemini-2.5-pro", feature: "codeGen" });
 	const skipReview = getAIProviderConfig()?.skipLayoutReview ?? false;
 	const skipVisionReview = getAIProviderConfig()?.skipVisionReview ?? true;
 	const sceneJson = JSON.stringify(scene, null, 1);
@@ -449,10 +460,14 @@ ${sceneJson}`;
 		system: buildSceneCodeSystemPrompt(theme),
 		prompt: userPrompt,
 		temperature: 0.3,
+		providerOptions: {
+			google: { thinkingConfig: { thinkingBudget: 8192 } },
+		},
 		...(searchTools ? { tools: searchTools, maxSteps: 2 } : {}),
 		langfuse: {
 			name: "generate-scene-code",
 			metadata: { sceneName: scene.name, sceneType: scene.type },
+			pipelineRunId,
 		},
 	});
 
