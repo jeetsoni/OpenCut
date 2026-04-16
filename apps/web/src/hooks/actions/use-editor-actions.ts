@@ -1596,10 +1596,22 @@ export function useEditorActions() {
 
 			void (async () => {
 				try {
-					const [direction, codeResult] = await Promise.all([
-						getSceneDirection({ projectId, sceneId }),
-						getSceneRemotionCode({ projectId, sceneId }),
-					]);
+					// Fetch boundaries to find prev/next scene IDs for continuity context
+					const boundaries = await getProjectBoundaries({ projectId });
+					const allScenes = boundaries?.boundaries ?? [];
+					const sceneIndex = allScenes.findIndex((b) => b.id === sceneId);
+					const prevSceneId = sceneIndex > 0 ? allScenes[sceneIndex - 1]?.id : undefined;
+					const nextSceneId = sceneIndex >= 0 && sceneIndex < allScenes.length - 1 ? allScenes[sceneIndex + 1]?.id : undefined;
+
+					const [direction, codeResult, prevDirection, prevCodeResult, nextDirection, nextCodeResult] =
+						await Promise.all([
+							getSceneDirection({ projectId, sceneId }),
+							getSceneRemotionCode({ projectId, sceneId }),
+							prevSceneId != null ? getSceneDirection({ projectId, sceneId: prevSceneId }) : Promise.resolve(null),
+							prevSceneId != null ? getSceneRemotionCode({ projectId, sceneId: prevSceneId }) : Promise.resolve(null),
+							nextSceneId != null ? getSceneDirection({ projectId, sceneId: nextSceneId }) : Promise.resolve(null),
+							nextSceneId != null ? getSceneRemotionCode({ projectId, sceneId: nextSceneId }) : Promise.resolve(null),
+						]);
 
 					if (!direction) {
 						toast.error("No direction found", { id: toastId });
@@ -1613,10 +1625,21 @@ export function useEditorActions() {
 						return;
 					}
 
+					const previousScene =
+						prevDirection && prevCodeResult
+							? { direction: prevDirection, code: prevCodeResult.code }
+							: undefined;
+					const nextScene =
+						nextDirection && nextCodeResult
+							? { direction: nextDirection, code: nextCodeResult.code }
+							: undefined;
+
 					const code = await tweakSceneRemotionCode({
 						existingCode: codeResult.code,
 						tweakPrompt: tweakPrompt.trim(),
 						scene: direction,
+						previousScene,
+						nextScene,
 						images: manualImages && manualImages.length > 0 ? manualImages : undefined,
 						onProgress: (p) => toast.loading(p.message, { id: toastId }),
 					});

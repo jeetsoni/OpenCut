@@ -244,6 +244,51 @@ const SCENE_CODE_TWEAK_SYSTEM_PROMPT = `You are a precise code editor for Remoti
 const MAX_TWEAK_STEPS = 10;
 
 /**
+ * Builds a context block describing neighboring scenes so the AI can maintain
+ * visual continuity when tweaking a scene's animation code.
+ */
+function buildNeighboringSceneContext({
+	previousScene,
+	nextScene,
+}: {
+	previousScene?: { direction: PlannedScene; code: string };
+	nextScene?: { direction: PlannedScene; code: string };
+}): string {
+	if (!previousScene && !nextScene) return "";
+
+	const lines: string[] = ["\n## Neighboring Scene Context (for visual continuity)"];
+	lines.push("Use this to ensure your edits feel connected to adjacent scenes — match or intentionally contrast color accents, layout patterns, and animation style.\n");
+
+	if (previousScene) {
+		const d = previousScene.direction;
+		lines.push(`### Previous Scene: "${d.name}" (${d.type})`);
+		lines.push(`Mood: ${d.animationDirection.mood}`);
+		lines.push(`Color accent: ${d.animationDirection.colorAccent}`);
+		lines.push(`Layout: ${d.animationDirection.layout}`);
+		lines.push(`Last beat visual: "${d.animationDirection.beats.at(-1)?.visual ?? ""}"`);
+		lines.push("Previous scene code (for reference — do NOT copy wholesale, only borrow patterns):");
+		lines.push("```tsx");
+		lines.push(previousScene.code);
+		lines.push("```\n");
+	}
+
+	if (nextScene) {
+		const d = nextScene.direction;
+		lines.push(`### Next Scene: "${d.name}" (${d.type})`);
+		lines.push(`Mood: ${d.animationDirection.mood}`);
+		lines.push(`Color accent: ${d.animationDirection.colorAccent}`);
+		lines.push(`Layout: ${d.animationDirection.layout}`);
+		lines.push(`First beat visual: "${d.animationDirection.beats.at(0)?.visual ?? ""}"`);
+		lines.push("Next scene code (for reference — do NOT copy wholesale, only borrow patterns):");
+		lines.push("```tsx");
+		lines.push(nextScene.code);
+		lines.push("```\n");
+	}
+
+	return lines.join("\n");
+}
+
+/**
  * Tweak existing Remotion code using an agentic tool-based approach.
  * The AI reads the code, then makes surgical edits via string replacement.
  * Optionally accepts base64 PNG screenshots (no data-URL prefix) to give the
@@ -253,12 +298,18 @@ export async function tweakSceneRemotionCode({
 	existingCode,
 	tweakPrompt,
 	scene,
+	previousScene,
+	nextScene,
 	images,
 	onProgress,
 }: {
 	existingCode: string;
 	tweakPrompt: string;
 	scene: PlannedScene;
+	/** Direction + code of the scene immediately before this one, for visual continuity */
+	previousScene?: { direction: PlannedScene; code: string };
+	/** Direction + code of the scene immediately after this one, for visual continuity */
+	nextScene?: { direction: PlannedScene; code: string };
 	/** Optional base64 PNG screenshots (without data:image/png;base64, prefix) */
 	images?: string[];
 	onProgress?: (progress: SceneCodeGenProgress) => void;
@@ -268,8 +319,10 @@ export async function tweakSceneRemotionCode({
 	const model = buildModel({ gemini: "gemini-2.5-pro", feature: "tweak" });
 	let currentCode = existingCode;
 
-	const textPrompt = `The user wants to tweak the animation for scene "${scene.name}" (${scene.type}, ${scene.startTime.toFixed(1)}s–${scene.endTime.toFixed(1)}s).
+	const neighboringContext = buildNeighboringSceneContext({ previousScene, nextScene });
 
+	const textPrompt = `The user wants to tweak the animation for scene "${scene.name}" (${scene.type}, ${scene.startTime.toFixed(1)}s–${scene.endTime.toFixed(1)}s).
+${neighboringContext}
 User's request: ${tweakPrompt}
 
 Start by calling read_code to see the current animation, then use edit_code to make the minimal changes needed.`;
