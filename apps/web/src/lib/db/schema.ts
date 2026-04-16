@@ -48,24 +48,6 @@ export const accounts = pgTable("accounts", {
 	updatedAt: timestamp("updated_at").notNull(),
 }).enableRLS();
 
-export const wizardSessions = pgTable("wizard_sessions", {
-	id: text("id").primaryKey(),
-	projectId: text("project_id").notNull().unique(),
-	currentStep: integer("current_step").notNull().default(0),
-	selectedLayout: text("selected_layout"),
-	/** "idle" | "done" — mid-processing phases are never persisted */
-	uploadPhase: text("upload_phase").notNull().default("idle"),
-	removedSegments: jsonb("removed_segments").notNull().default([]),
-	preProcessingTracks: jsonb("pre_processing_tracks"),
-	postProcessingTracks: jsonb("post_processing_tracks"),
-	createdAt: timestamp("created_at")
-		.$defaultFn(() => /* @__PURE__ */ new Date())
-		.notNull(),
-	updatedAt: timestamp("updated_at")
-		.$defaultFn(() => /* @__PURE__ */ new Date())
-		.notNull(),
-});
-
 export const verifications = pgTable("verifications", {
 	id: text("id").primaryKey(),
 	identifier: text("identifier").notNull(),
