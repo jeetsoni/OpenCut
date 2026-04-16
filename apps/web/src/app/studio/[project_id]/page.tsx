@@ -1,16 +1,15 @@
 "use client";
 
-import { useParams } from "next/navigation";
-import { WizardProvider } from "@/components/wizard/wizard-provider";
-import { WizardShell } from "@/components/wizard/wizard-shell";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 
 export default function StudioProjectPage() {
-	const params = useParams();
-	const projectId = params.project_id as string;
+	const router = useRouter();
 
-	return (
-		<WizardProvider projectId={projectId}>
-			<WizardShell projectId={projectId} />
-		</WizardProvider>
-	);
+	useEffect(() => {
+		// Redirect to studio page since wizard is removed
+		router.push("/studio");
+	}, [router]);
+
+	return null;
 }
